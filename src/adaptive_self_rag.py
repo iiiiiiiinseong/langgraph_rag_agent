@@ -1,5 +1,5 @@
 """
-Adaptive Self-RAG
+Adaptive_self_rag
 금융상품(예: 정기예금, 입출금자유예금) 관련 질의에 대해:
 1. 질문 라우팅 → (금융상품 관련이면) 문서 검색 (병렬 서브 그래프) → 문서 평가 → (조건부) 질문 재작성 → 답변 생성
    / (금융상품과 무관하면) LLM fallback을 통해 바로 답변 생성
@@ -32,9 +32,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import tool
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import ChatOpenAI, keep_last
-from langgraph.graph import MessagesState
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_openai import ChatOpenAI
 
 # Grader 평가지표용
 from pydantic import BaseModel, Field
@@ -155,7 +153,7 @@ class BinaryGradeDocuments(BaseModel):
         description="Documents are relevant to the question, 'yes' or 'no'"
     )
 
-structured_llm_grader = llm.with_structured_output(BinaryGradeDocuments)
+structured_llm_BinaryGradeDocuments = llm.with_structured_output(BinaryGradeDocuments)
 
 system_prompt = """You are an expert in evaluating the relevance of search results to user queries.
 
@@ -181,9 +179,9 @@ grade_prompt = ChatPromptTemplate.from_messages([
     ("human", "[Retrieved document]\n{document}\n\n[User question]\n{question}")
 ])
 
-retrieval_grader_binary = grade_prompt | structured_llm_grader
+retrieval_grader_binary = grade_prompt | structured_llm_BinaryGradeDocuments
 
-question = "기업은행의 예금 상품이 어떤 것이 있는지 비교해주세요."
+question = "어떤 예금 상품이 있는지 설명해주세요."
 print(f'\nquestion : {question}\n')
 retrieved_docs = fixed_deposit_db.similarity_search(question, k=2)
 print(f"검색된 문서 수: {len(retrieved_docs)}")
@@ -206,8 +204,6 @@ for doc in retrieved_docs:
 print("\n# (2) Answer Generator (일반 RAG) \n")
 
 # (2) Answer Generator (일반 RAG)
-from langchain_core.output_parsers import StrOutputParser
-
 def generator_rag_answer(question, docs):
 
     template = """
@@ -255,7 +251,7 @@ class GradeHallucinations(BaseModel):
         description="Answer is grounded in the facts, 'yes' or 'no'"
     )
 
-structured_llm_grader = llm.with_structured_output(GradeHallucinations)
+structured_llm_HradeHallucinations = llm.with_structured_output(GradeHallucinations)
 
 # 환각 평가를 위한 시스템 프롬프트 정의
 halluci_system_prompt = """
@@ -283,7 +279,7 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-hallucination_grader = hallucination_prompt | structured_llm_grader
+hallucination_grader = hallucination_prompt | structured_llm_HradeHallucinations
 hallucination = hallucination_grader.invoke({"documents": relevant_docs, "generation": generation})
 print(f"환각 평가: {hallucination}")
 
@@ -295,7 +291,7 @@ class BinaryGradeAnswer(BaseModel):
         description="Answer addresses the question, 'yes' or 'no'"
     )
 
-structured_llm_grader = llm.with_structured_output(BinaryGradeAnswer)
+structured_llm_BinaryGradeAnswer = llm.with_structured_output(BinaryGradeAnswer)
 grade_system_prompt = """
 You are an expert evaluator tasked with assessing whether an LLM-generated answer effectively addresses and resolves a user's question.
 
@@ -323,7 +319,7 @@ answer_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-answer_grader_binary = answer_prompt | structured_llm_grader
+answer_grader_binary = answer_prompt | structured_llm_BinaryGradeAnswer
 print("Question:", question)
 print("Generation:", generation)
 answer_score = answer_grader_binary.invoke({"question": question, "generation": generation})
@@ -360,12 +356,14 @@ def rewrite_question(question: str) -> str:
 
 print("\n# (6) Generation Evaluation & Decision Nodes\n")
 # (6) Generation Evaluation & Decision Nodes
-def grade_generation_self(state: "SelfRagState") -> str:
+def grade_generation_self(state: "SelfRagOverallState") -> str:
     print("--- 답변 평가 (생성) ---")
-    if state.num_generations > 1:
+    print(f"--- 생성된 답변: {state.generation} ---")
+    if state.num_generations > 2:
         print("--- 생성 횟수 초과, 종료 -> end ---")
         return "end"
     # 평가를 위한 문서 텍스트 구성
+    print("--- 답변 할루시네이션 평가 ---")
     docs_text = "\n\n".join([d.page_content for d in state.documents])
     hallucination_grade = hallucination_grader.invoke({
         "documents": docs_text,
@@ -376,6 +374,7 @@ def grade_generation_self(state: "SelfRagState") -> str:
             "question": state.question,
             "generation": state.generation
         })
+        print("--- 답변-질문 관련성 평가 ---")
         if relevance_grade.binary_score == "yes":
             print("--- 생성된 답변이 질문을 잘 해결함 ---")
             return "useful"
@@ -385,11 +384,10 @@ def grade_generation_self(state: "SelfRagState") -> str:
     else:
         print("--- 생성된 답변의 근거가 부족 -> generate 재시도 ---")
         return "not supported"
-
-# 검색된 문서가 질문과 관련있는지 확인하는 함수
-def decide_to_generate_self(state: "SelfRagState") -> str:
+    
+def decide_to_generate_self(state: "SelfRagOverallState") -> str:
     print("--- 평가된 문서 분석 ---")
-    if state.num_generations > 1:
+    if state.num_generations > 2:
         print("--- 생성 횟수 초과, 생성 결정 ---")
         return "generate"
     # 여기서는 필터링된 문서가 존재하는지 확인
@@ -401,71 +399,86 @@ def decide_to_generate_self(state: "SelfRagState") -> str:
         return "generate"
 
 
-# 생성되는 답변이 질문과 관련이 있는지 확인하는 함수
-# def decide_to_generate_crag(state: <Sate명 수정필요>):
-#     """답변 생성 여부를 결정하는 함수"""
-#     print("--- 평가된 문서 분석 ---")
-#     knowledge_strips = state.get("knowledge_strips", None)
-    
-#     if not knowledge_strips:
-#         print("--- 결정: 모든 문서가 질문과 관련이 없음, 질문 개선 필요 (-> transform_query)---")
-#         return "transform_query"
-#     else:
-#         print("--- 결정: 답변 생성 (-> generate)---")
-#         return "generate"
-    
+# (7) RoutingDecision 
+class RoutingDecision(BaseModel):
+    """Determines whether a user question should be routed to document search or LLM fallback."""
+    route: Literal["search_data","llm_fallback"] = Field(
+        description="Classify the question as 'search_data' (financial) or 'llm_fallback' (general)"
+        )
 
 #############################
 # 6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)
 #############################
 print('\n6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)\n')
-# 상태 통합: SelfRagState (질문, 생성, 원본 문서, 필터 문서, 생성 횟수)
-class SelfRagState(MessagesState): # 메시지를 관리할 수 있게 메시지스테이트로 초기화화
+# 상태 통합: SelfRagOverallState (질문, 생성, 원본 문서, 필터 문서, 생성 횟수)
+class SelfRagOverallState(BaseModel):
     question: str
     generation: str = ""
-    branch: str = ""
+    routing_decision: str = "" 
     documents: List[Document] = []
     filtered_documents: List[Document] = []
     num_generations: int = 0
 
 # 질문 재작성 노드 (변경 후 검색 루프)
-def transform_query_self(state: SelfRagState) -> dict:
+def transform_query_self(state: SelfRagOverallState) -> dict:
     print("--- 질문 개선 ---")
-    rewritten_question = rewrite_question(state.question)
-    state.question = rewritten_question  # 상태 업데이트
-    return {
-            "question": rewritten_question, 
-            "num_generations": state.num_generations,
-            "messages": [HumanMessage(content=rewritten_question)]
-            }
+    new_question = rewrite_question(state.question)
+    print(f"--- 개선된 질문 : \n{new_question} ")
+    state.num_generations += 1
+    state.question = new_question  # 상태 업데이트
+    print(f"num_generations : {state.num_generations}")
+    return {"question": new_question, "num_generations": state.num_generations}
 
 # 답변 생성 노드 (서브 그래프로부터 받은 필터 문서 우선 사용)
-def generate_self(state: SelfRagState) -> dict:
+def generate_self(state: SelfRagOverallState) -> dict:
     print("--- 답변 생성 ---")
     docs = state.filtered_documents if state.filtered_documents else state.documents
     generation = generator_rag_answer(state.question, docs)
     state.num_generations += 1
     state.generation = generation
-    return {
-        "generation": generation, 
-        "num_generations": state.num_generations,
-        "messages": [AIMessage(content=generation)]
-        }
+    return {"generation": generation, "num_generations": state.num_generations}
 
-# 질문 라우팅 노드
-def route_question_adaptive(state: SelfRagState) -> dict:
-    question = state["question"]
+
+structured_llm_RoutingDecision = llm.with_structured_output(RoutingDecision)
+
+question_router_system  = """
+You are an AI assistant that routes user questions to the appropriate processing path.
+Return one of the following labels:
+- search_data
+- llm_fallback
+"""
+
+question_router_prompt = ChatPromptTemplate.from_messages([
+    ("system", question_router_system),
+    ("human", "{question}")
+])
+
+question_router = question_router_prompt | structured_llm_RoutingDecision
+
+# question route 노드 
+def route_question_adaptive(state: SelfRagOverallState) -> dict:
+    print("--- 질문 판단 (일반 or 금융) ---")
+    decision = question_router.invoke({"question": state.question})
+    print("routing_decision:", decision.route)
+    return {"routing_decision": decision.route}
+
+# question route 분기 함수 
+def route_question_adaptive_self(state: SelfRagOverallState) -> str:
+    """
+    질문 분석 및 라우팅: 사용자의 질문을 분석하여 '금융질문'인지 '일반질문'인지 판단
+    """
     try:
-        result = question_tool_router.invoke({"question": question})
-        branch = "search_data" if result.tools else "llm_fallback"
-    except Exception:
-        branch = "llm_fallback"
+        if state.routing_decision == "llm_fallback":
+            print("--- 일반질문으로 라우팅 ---")
+            return "llm_fallback"
+        else:
+            print("--- 금융질문으로 라우팅 ---")
+            return "search_data"
+    except Exception as e:
+        print(f"--- 질문 분석 중 Exception 발생: {e} ---")
+        return "llm_fallback"
 
-    return {
-        "branch": branch       # 분기 기준 필드 추가
-    }
-    
-# Fallback 응답 생성 노드
+
 fallback_prompt = ChatPromptTemplate.from_messages([
     ("system", """
     You are an AI assistant helping with various topics. 
@@ -476,19 +489,23 @@ fallback_prompt = ChatPromptTemplate.from_messages([
     """),
     ("human", "{question}")
 ])
-def llm_fallback_adaptive(state: SelfRagState)-> dict:
-    question = state.questionSelfRagState
-    llm_chain = fallback_prompt | llm | StrOutputParser()
-    generation = llm_chain.invoke({"question": question})
+
+def llm_fallback_adaptive(state: SelfRagOverallState):
+    """Generates a direct response using the LLM when the question is unrelated to financial products."""
+    question = state.question
+    fallback_chain = fallback_prompt | llm | StrOutputParser()
+    generation = fallback_chain.invoke({"question": question})
     return {"generation": generation}
 
 #############################
-# 7. [서브 그래프] - 병렬 검색 서브 그래프 구현
+# 7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현
 #############################
-print('\n7. [서브 그래프] - 병렬 검색 서브 그래프 구현\n')
+
+print('\n7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현\n')
 # --- 상태 정의 (검색 서브 그래프 전용) ---
 class SearchState(TypedDict):
     question: str
+    generation: str
     documents: Annotated[List[Document], add]  # 팬아웃된 각 검색 결과를 누적할 것
     filtered_documents: List[Document]         # 관련성 평가를 통과한 문서들
 
@@ -502,6 +519,7 @@ def search_fixed_deposit_subgraph(state: SearchState):
     정기예금 상품 검색 (서브 그래프)
     """
     question = state["question"]
+    print('--- 정기예금 상품 검색 --- ')
     docs = search_fixed_deposit.invoke(question)
     if len(docs) > 0:
         return {"documents": docs}
@@ -513,6 +531,7 @@ def search_demand_deposit_subgraph(state: SearchState):
     입출금자유예금 상품 검색 (서브 그래프)
     """
     question = state["question"]
+    print('--- 입출금자유예금 상품 검색 ---')
     docs = search_demand_deposit.invoke(question)
     if len(docs) > 0:
         return {"documents": docs}
@@ -542,17 +561,18 @@ def filter_documents_subgraph(state: SearchState):
 
 # --- 질문 라우팅 (서브 그래프 전용) ---
 class SubgraphToolSelector(BaseModel):
-    """라우팅: 정기예금 또는 입출금자유예금 도구 선택"""
+    """Selects the most appropriate tool for the user's question."""
     tool: Literal["search_fixed_deposit", "search_demand_deposit"] = Field(
-        description="질문에 따라 정기예금 또는 입출금자유예금 도구 선택"
+        description="Select one of the tools: search_fixed_deposit, search_demand_deposit based on the user's question."
     )
 
 class SubgraphToolSelectors(BaseModel):
+    """Selects all tools relevant to the user's question."""
     tools: List[SubgraphToolSelector] = Field(
-        description="질문에 따라 선택된 도구 목록"
+        description="Select one or more tools: search_fixed_deposit, search_demand_deposit based on the user's question."
     )
 
-structured_llm_tool_selector = llm.with_structured_output(SubgraphToolSelectors)
+structured_llm_SubgraphToolSelectors = llm.with_structured_output(SubgraphToolSelectors)
 
 subgraph_system  = dedent("""\
 You are an AI assistant specializing in routing user questions to the appropriate tools.
@@ -567,7 +587,7 @@ subgraph_route_prompt = ChatPromptTemplate.from_messages(
         ("human", "{question}")
     ]
 )
-question_tool_router = subgraph_route_prompt  | structured_llm_tool_selector
+question_tool_router = subgraph_route_prompt  | structured_llm_SubgraphToolSelectors
 
 def analyze_question_tool_search(state: ToolSearchState):
     """
@@ -619,49 +639,41 @@ search_builder.add_edge("filter_documents", END)
 # 서브 그래프 컴파일
 tool_search_graph = search_builder.compile()
 
-
-##############################################
-# 11. [전체 그래프와 결합] - Self-RAG Overall Graph
-##############################################
+#############################
+# 8. [전체 그래프와 결합] - Self-RAG Overall Graph
+#############################
 print('\n8. [전체 그래프와 결합] - Self-RAG Overall Graph\n')
+class SelfRagOverallState(SelfRagOverallState):
+    # 이미 정의된 상태에 필터링된 문서를 포함
+    pass
 
-# 새 상태 정의: 기존 SelfRagOverallState에 필터 문서를 포함 (하위 재정의)
-class SelfRagOverallState(SelfRagState):
-    question: Annotated[str, add]
-    generation: str = ""
-    branch: str = ""
-    documents: List[Document] = []
-    filtered_documents: List[Document] = []
-    num_generations: int = 0
-
-# 전체 그래프 빌더 구성
+# 전체 그래프 빌더 (rag_builder) 구성
 rag_builder = StateGraph(SelfRagOverallState)
 
-# 노드 추가
+# 노드 추가: 검색 서브 그래프, 생성, 질문 재작성 등
 rag_builder.add_node("route_question", route_question_adaptive)
 rag_builder.add_node("llm_fallback", llm_fallback_adaptive)
-rag_builder.add_node("search_data", tool_search_graph)   # 서브 그래프: 검색 및 필터링
-rag_builder.add_node("generate", generate_self)
-rag_builder.add_node("transform_query", transform_query_self)
+rag_builder.add_node("search_data", tool_search_graph)         # 서브 그래프로 병렬 검색 및 필터링 수행
+rag_builder.add_node("generate", generate_self)                # 답변 생성 노드
+rag_builder.add_node("transform_query", transform_query_self)  # 질문 개선 노드
 
-# 엣지 구성
+# 전체 그래프 엣지 구성
 rag_builder.add_edge(START, "route_question")
 rag_builder.add_conditional_edges(
     "route_question",
-    lambda state: state["branch"], 
+    route_question_adaptive_self, 
     {
         "llm_fallback": "llm_fallback",
         "search_data": "search_data"
     }
 )
 rag_builder.add_edge("llm_fallback", END)
-rag_builder.add_edge("search_data", "search_data") 
 rag_builder.add_conditional_edges(
     "search_data",
-    decide_to_generate_self,
+    decide_to_generate_self, 
     {
         "transform_query": "transform_query",
-        "generate": "generate"
+        "generate": "generate",
     }
 )
 rag_builder.add_edge("transform_query", "search_data")
@@ -669,29 +681,34 @@ rag_builder.add_conditional_edges(
     "generate",
     grade_generation_self,
     {
-        "not supported": "generate",
-        "not useful": "transform_query",
+        "not supported": "generate",      # 환각 발생 시 재생성
+        "not useful": "transform_query",  # 관련성 부족 시 질문 재작성 후 재검색
         "useful": END,
-        "end": END
+        "end": END,
     }
 )
+
 adaptive_self_rag = rag_builder.compile()
+
 # 그래프 파일 저장하기
 # display(Image(adaptive_self_rag.get_graph().draw_mermaid_png()))
 with open("adaptive_self_rag.mmd", "w") as f:
     f.write(adaptive_self_rag.get_graph(xray=True).draw_mermaid()) # 저장된 mmd 파일에서 코드 복사 후 https://mermaid.live 에 붙여넣기.
 
-##############################################
-# 12. 실행 테스트
-##############################################
-inputs = {"question": "안녕, 너의 역할은 무엇이고 나는 어떤 도움을 받을 수 있니?"}
+#############################
+# 9. 전체 그래프 실행 및 결과 확인
+#############################
+
+inputs = {"question": "정기예금과 입출금자유예금은 어떤 차이점이 있나요? 정기예금 상품중 가장 금리가 높은 것은 무엇인가요?"}
+print('\n9. 전체 그래프 실행 및 결과 확인\n')
+print(f'inputs: {inputs}\n')
 final_output = adaptive_self_rag.invoke(inputs)
+
 if "generation" in final_output:
     print("# 최종 답변")
     print(final_output["generation"])
 else:
     print("결과를 찾을 수 없습니다.")
-
 
 # # 추가 테스트 예시
 # inputs = {"question": "국민은행의 정기예금 상품이 있나요? 우리은행 상품과 어떤점이 다른가요?"}
