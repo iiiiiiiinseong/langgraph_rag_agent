@@ -19,13 +19,14 @@ warnings.filterwarnings("ignore")
 
 # 기타 유틸
 import json
+import uuid
 from pprint import pprint
 from textwrap import dedent
 from operator import add
 
 
 # LangChain, Chroma, LLM 관련
-from typing import List, Literal, Sequence, TypedDict, Annotated
+from typing import List, Literal, Sequence, TypedDict, Annotated, Tuple
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -33,14 +34,17 @@ from langchain_core.tools import tool
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 # Grader 평가지표용
 from pydantic import BaseModel, Field
 
 # 그래프 관련
 from langgraph.graph import StateGraph, START, END
-from IPython.display import Image, display
 
+# Gradio 관련
+import gradio as gr
 
 #############################
 # 2. 임베딩 및 DB 설정
@@ -112,7 +116,7 @@ def search_fixed_deposit(query: str) -> List[Document]:
     Search for relevant fixed deposit (정기예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as interest rates or terms.
     """
-    docs = fixed_deposit_db.similarity_search(query, k=2)
+    docs = fixed_deposit_db.similarity_search(query, k=1)
     if len(docs) > 0:
         return docs
     return [Document(page_content="관련 정기예금 상품정보를 찾을 수 없습니다.")]
@@ -124,7 +128,7 @@ def search_demand_deposit(query: str) -> List[Document]:
     Search for demand deposit (입출금자유예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
     """
-    docs = demand_deposit_db.similarity_search(query, k=2)
+    docs = demand_deposit_db.similarity_search(query, k=1)
     if len(docs) > 0:
         return docs
     return [Document(page_content="관련 입출금자유예금 상품정보를 찾을 수 없습니다.")]
@@ -190,7 +194,7 @@ print()
 
 relevant_docs = []
 for doc in retrieved_docs:
-    print("문서:", doc.page_content)
+    print("문서:\n", doc.page_content)
     print("---------------------------------------------------------------------------")
 
     relevance = retrieval_grader_binary.invoke({"question": question, "document": doc.page_content})
@@ -216,7 +220,7 @@ def generator_rag_answer(question, docs):
     2. 답변에 질문과 직접 관련된 정보만 사용합니다.
     3. 문맥에 명시되지 않은 내용에 대해 추측하지 않습니다.
     4. 불필요한 정보를 피하고, 답변을 간결하고 명확하게 작성합니다.
-    5. 문맥에서 답을 찾을 수 없으면 "주어진 정보만으로는 답할 수 없습니다."라고 답변합니다.
+    5. 문맥에서 정확한 답변을 생성할 수 없다면 최대한 필요한 답변을 생성한 뒤 마지막에 "더 구체적인 정보를 알려주시면 더욱 명쾌한 답변을 할 수 있습니다."라고 덧붙여 답변합니다.
     6. 적절한 경우 문맥에서 직접 인용하며, 따옴표를 사용합니다.
 
     [Context]
@@ -358,21 +362,21 @@ print("\n# (6) Generation Evaluation & Decision Nodes\n")
 # (6) Generation Evaluation & Decision Nodes
 def grade_generation_self(state: "SelfRagOverallState") -> str:
     print("--- 답변 평가 (생성) ---")
-    print(f"--- 생성된 답변: {state.generation} ---")
-    if state.num_generations > 2:
+    print(f"--- 생성된 답변: {state['generation']} ---")
+    if state['num_generations'] > 2:
         print("--- 생성 횟수 초과, 종료 -> end ---")
         return "end"
     # 평가를 위한 문서 텍스트 구성
     print("--- 답변 할루시네이션 평가 ---")
-    docs_text = "\n\n".join([d.page_content for d in state.documents])
+    docs_text = "\n\n".join([d.page_content for d in state['documents']])
     hallucination_grade = hallucination_grader.invoke({
         "documents": docs_text,
-        "generation": state.generation
+        "generation": state['generation']
     })
     if hallucination_grade.binary_score == "yes":
-        relevance_grade = answer_grader_binary.invoke({
-            "question": state.question,
-            "generation": state.generation
+        relevance_grade = retrieval_grader_binary.invoke({
+            "question": state['question'],
+            "generation": state['generation']
         })
         print("--- 답변-질문 관련성 평가 ---")
         if relevance_grade.binary_score == "yes":
@@ -387,11 +391,11 @@ def grade_generation_self(state: "SelfRagOverallState") -> str:
     
 def decide_to_generate_self(state: "SelfRagOverallState") -> str:
     print("--- 평가된 문서 분석 ---")
-    if state.num_generations > 2:
+    if state['num_generations'] > 2:
         print("--- 생성 횟수 초과, 생성 결정 ---")
         return "generate"
     # 여기서는 필터링된 문서가 존재하는지 확인
-    if not state.filtered_documents:
+    if not state['filtered_documents']:
         print("--- 관련 문서 없음 -> transform_query ---")
         return "transform_query"
     else:
@@ -411,32 +415,41 @@ class RoutingDecision(BaseModel):
 #############################
 print('\n6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)\n')
 # 상태 통합: SelfRagOverallState (질문, 생성, 원본 문서, 필터 문서, 생성 횟수)
-class SelfRagOverallState(BaseModel):
+#TODO
+
+# 메인 그래프 상태 정의
+class SelfRagOverallState(TypedDict):
+    """
+    Adaptive Self-RAG 체인의 전체 상태를 관리    
+    """
     question: str
-    generation: str = ""
+    generation: Annotated[List[str], add]
     routing_decision: str = "" 
+    num_generations: int = 0
     documents: List[Document] = []
     filtered_documents: List[Document] = []
-    num_generations: int = 0
 
 # 질문 재작성 노드 (변경 후 검색 루프)
 def transform_query_self(state: SelfRagOverallState) -> dict:
     print("--- 질문 개선 ---")
-    new_question = rewrite_question(state.question)
+    new_question = rewrite_question(state['question'])
     print(f"--- 개선된 질문 : \n{new_question} ")
-    state.num_generations += 1
-    state.question = new_question  # 상태 업데이트
-    print(f"num_generations : {state.num_generations}")
-    return {"question": new_question, "num_generations": state.num_generations}
+    state['num_generations'] += 1
+    state['question'] = new_question  # 상태 업데이트
+    print(f"num_generations : {state['num_generations']}")
+    return {"question": new_question, "num_generations": state['num_generations']}
 
 # 답변 생성 노드 (서브 그래프로부터 받은 필터 문서 우선 사용)
 def generate_self(state: SelfRagOverallState) -> dict:
     print("--- 답변 생성 ---")
-    docs = state.filtered_documents if state.filtered_documents else state.documents
-    generation = generator_rag_answer(state.question, docs)
-    state.num_generations += 1
-    state.generation = generation
-    return {"generation": generation, "num_generations": state.num_generations}
+    docs = state['filtered_documents'] if state['filtered_documents'] else state['documents']
+    generation = generator_rag_answer(state['question'], docs)
+    state['num_generations'] += 1
+    state['generation'] = generation
+    return {
+        "generation": [generation],         
+        "num_generations": state['num_generations'] + 1,
+    }
 
 
 structured_llm_RoutingDecision = llm.with_structured_output(RoutingDecision)
@@ -458,7 +471,7 @@ question_router = question_router_prompt | structured_llm_RoutingDecision
 # question route 노드 
 def route_question_adaptive(state: SelfRagOverallState) -> dict:
     print("--- 질문 판단 (일반 or 금융) ---")
-    decision = question_router.invoke({"question": state.question})
+    decision = question_router.invoke({"question": state['question']})
     print("routing_decision:", decision.route)
     return {"routing_decision": decision.route}
 
@@ -468,7 +481,7 @@ def route_question_adaptive_self(state: SelfRagOverallState) -> str:
     질문 분석 및 라우팅: 사용자의 질문을 분석하여 '금융질문'인지 '일반질문'인지 판단
     """
     try:
-        if state.routing_decision == "llm_fallback":
+        if state['routing_decision'] == "llm_fallback":
             print("--- 일반질문으로 라우팅 ---")
             return "llm_fallback"
         else:
@@ -492,10 +505,10 @@ fallback_prompt = ChatPromptTemplate.from_messages([
 
 def llm_fallback_adaptive(state: SelfRagOverallState):
     """Generates a direct response using the LLM when the question is unrelated to financial products."""
-    question = state.question
+    question = state['question']
     fallback_chain = fallback_prompt | llm | StrOutputParser()
     generation = fallback_chain.invoke({"question": question})
-    return {"generation": generation}
+    return {"generation": [generation]}
 
 #############################
 # 7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현
@@ -505,7 +518,7 @@ print('\n7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현\n'
 # --- 상태 정의 (검색 서브 그래프 전용) ---
 class SearchState(TypedDict):
     question: str
-    generation: str
+    # generation: str
     documents: Annotated[List[Document], add]  # 팬아웃된 각 검색 결과를 누적할 것
     filtered_documents: List[Document]         # 관련성 평가를 통과한 문서들
 
@@ -643,9 +656,6 @@ tool_search_graph = search_builder.compile()
 # 8. [전체 그래프와 결합] - Self-RAG Overall Graph
 #############################
 print('\n8. [전체 그래프와 결합] - Self-RAG Overall Graph\n')
-class SelfRagOverallState(SelfRagOverallState):
-    # 이미 정의된 상태에 필터링된 문서를 포함
-    pass
 
 # 전체 그래프 빌더 (rag_builder) 구성
 rag_builder = StateGraph(SelfRagOverallState)
@@ -688,34 +698,60 @@ rag_builder.add_conditional_edges(
     }
 )
 
-adaptive_self_rag = rag_builder.compile()
+# MemorySaver 인스턴스 생성 (대화 상태를 저장할 in-memory 키-값 저장소)
+memory = MemorySaver()
+adaptive_self_rag_memory = rag_builder.compile(checkpointer=memory)
+# adaptive_self_rag = rag_builder.compile()
 
 # 그래프 파일 저장하기
 # display(Image(adaptive_self_rag.get_graph().draw_mermaid_png()))
-with open("adaptive_self_rag.mmd", "w") as f:
-    f.write(adaptive_self_rag.get_graph(xray=True).draw_mermaid()) # 저장된 mmd 파일에서 코드 복사 후 https://mermaid.live 에 붙여넣기.
+with open("adaptive_self_rag_memory.mmd", "w") as f:
+    f.write(adaptive_self_rag_memory.get_graph(xray=True).draw_mermaid()) # 저장된 mmd 파일에서 코드 복사 후 https://mermaid.live 에 붙여넣기.
+
 
 #############################
-# 9. 전체 그래프 실행 및 결과 확인
+# 9. Gradio Chatbot 구성 및 실행
 #############################
 
-inputs = {"question": "정기예금과 입출금자유예금은 어떤 차이점이 있나요? 정기예금 상품중 가장 금리가 높은 것은 무엇인가요?"}
-print('\n9. 전체 그래프 실행 및 결과 확인\n')
-print(f'inputs: {inputs}\n')
-final_output = adaptive_self_rag.invoke(inputs)
+# 챗봇 클래스
+class ChatBot:
+    def __init__(self):
+        self.thread_id = str(uuid.uuid4())
 
-if "generation" in final_output:
-    print("# 최종 답변")
-    print(final_output["generation"])
-else:
-    print("결과를 찾을 수 없습니다.")
+    def chat(self, message: str, history: List[Tuple[str, str]]) -> str:
+        """
+        입력 메시지와 대화 이력을 기반으로 Adaptive Self-RAG 체인을 호출하고,
+        응답을 반환합니다.
+        """
+        config = {"configurable": {"thread_id": self.thread_id}}
+        result = adaptive_self_rag_memory.invoke({
+                                                  "question": message,
+                                                  "num_generations": 0 
+                                                 },
+                                                  config=config
+                                                )
 
-# # 추가 테스트 예시
-# inputs = {"question": "국민은행의 정기예금 상품이 있나요? 우리은행 상품과 어떤점이 다른가요?"}
-# for output in adaptive_self_rag.stream(inputs):
-#     for node_name, node_value in output.items():
-#         pprint(f"Node '{node_name}':")
-#         pprint(f"Value: {node_value}", indent=2, width=80)
-#     print("\n----------------------------------------------------------\n")
-# print("# 최종 답변 (추가 테스트)")
-# print(output.get("generation", "응답 생성 실패"))
+        gen_list = result.get("generation", [])
+        bot_response = gen_list[-1] if gen_list else "죄송합니다. 답변을 생성할 수 없습니다."
+
+        return bot_response
+
+
+# 챗봇 인스턴스 생성
+chatbot = ChatBot()
+
+# Gradio 인터페이스 생성
+demo = gr.ChatInterface(
+    fn=chatbot.chat,
+    title="Adaptive Self-RAG 기반 RAG 챗봇 시스템",
+    description="정기예금, 입출금자유예금 상품 및 기타 질문에 답변합니다.",
+    examples=[
+        "정기예금 상품 중 금리가 가장 높은 것은?",
+        "정기예금과 입출금자유예금은 어떤 차이점이 있나요?",
+        "은행의 예금 상품을 추천해 주세요."
+    ],
+    theme=gr.themes.Soft()
+)
+
+# Gradio 앱 실행
+demo.launch(share=True)
