@@ -471,6 +471,7 @@ question_router = question_router_prompt | structured_llm_RoutingDecision
 # question route 노드 
 def route_question_adaptive(state: SelfRagOverallState) -> dict:
     print("--- 질문 판단 (일반 or 금융) ---")
+    print(f"질문: {state['question']}")
     decision = question_router.invoke({"question": state['question']})
     print("routing_decision:", decision.route)
     return {"routing_decision": decision.route}
@@ -499,6 +500,8 @@ fallback_prompt = ChatPromptTemplate.from_messages([
     - Provide accurate and helpful information.
     - Keep answers concise yet informative.
     - Inform users they can ask for clarification if needed.
+    - Let users know they can ask follow-up questions if needed.
+    - End every answer with the sentence: "저는 금융상품 질문에 특화되어 있습니다. 금융상품관련 질문을 주세요."
     """),
     ("human", "{question}")
 ])
