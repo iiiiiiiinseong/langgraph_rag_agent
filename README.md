@@ -44,7 +44,7 @@
 
 다음 다이어그램은 구축된 Adaptive Self-RAG 체인의 전체 프로세스를 나타냅니다:
 
-!(./assets/AdaptiveSelfRAG_ProcessGraph.png)
+![Adaptive Self-RAG Graph](./assets/AdaptiveSelfRAG_ProcessGraph.png)
 
 ---
 
