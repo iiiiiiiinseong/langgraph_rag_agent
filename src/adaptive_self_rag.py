@@ -30,7 +30,7 @@ from typing import List, Literal, Sequence, TypedDict, Annotated, Tuple
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.tools import tool
+from langchain_core.tools import tool 
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
@@ -185,25 +185,25 @@ grade_prompt = ChatPromptTemplate.from_messages([
 
 retrieval_grader_binary = grade_prompt | structured_llm_BinaryGradeDocuments
 
-question = "어떤 예금 상품이 있는지 설명해주세요."
-print(f'\nquestion : {question}\n')
-retrieved_docs = fixed_deposit_db.similarity_search(question, k=2)
-print(f"검색된 문서 수: {len(retrieved_docs)}")
-print("===============================================================================")
-print()
+# question = "어떤 예금 상품이 있는지 설명해주세요."
+# print(f'\nquestion : {question}\n')
+# retrieved_docs = fixed_deposit_db.similarity_search(question, k=2)
+# print(f"검색된 문서 수: {len(retrieved_docs)}")
+# print("===============================================================================")
+# print()
 
-relevant_docs = []
-for doc in retrieved_docs:
-    print("문서:\n", doc.page_content)
-    print("---------------------------------------------------------------------------")
+# relevant_docs = []
+# for doc in retrieved_docs:
+#     print("문서:\n", doc.page_content)
+#     print("---------------------------------------------------------------------------")
 
-    relevance = retrieval_grader_binary.invoke({"question": question, "document": doc.page_content})
-    print(f"문서 관련성: {relevance}")
+#     relevance = retrieval_grader_binary.invoke({"question": question, "document": doc.page_content})
+#     print(f"문서 관련성: {relevance}")
 
-    if relevance.binary_score == 'yes':
-        relevant_docs.append(doc)
+#     if relevance.binary_score == 'yes':
+#         relevant_docs.append(doc)
     
-    print("===========================================================================")
+#     print("===========================================================================")
 
 print("\n# (2) Answer Generator (일반 RAG) \n")
 
@@ -242,9 +242,9 @@ def generator_rag_answer(question, docs):
     generation = rag_chain.invoke({"context": format_docs(docs), "question": question})
     return generation
 
-generation = generator_rag_answer(question, docs=relevant_docs)
-print("Generated Answer (일반 RAG):")
-print(generation)
+# generation = generator_rag_answer(question, docs=relevant_docs)
+# print("Generated Answer (일반 RAG):")
+# print(generation)
 
 # (3) Hallucination Grader
 print("\n# (3) Hallucination Grader\n")
@@ -284,8 +284,8 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
 )
 
 hallucination_grader = hallucination_prompt | structured_llm_HradeHallucinations
-hallucination = hallucination_grader.invoke({"documents": relevant_docs, "generation": generation})
-print(f"환각 평가: {hallucination}")
+# hallucination = hallucination_grader.invoke({"documents": relevant_docs, "generation": generation})
+# print(f"환각 평가: {hallucination}")
 
 print("\n# (4) Answer Grader\n")
 # (4) Answer Grader 
@@ -324,10 +324,10 @@ answer_prompt = ChatPromptTemplate.from_messages(
 )
 
 answer_grader_binary = answer_prompt | structured_llm_BinaryGradeAnswer
-print("Question:", question)
-print("Generation:", generation)
-answer_score = answer_grader_binary.invoke({"question": question, "generation": generation})
-print(f"답변 평가: {answer_score}")
+# print("Question:", question)
+# print("Generation:", generation)
+# answer_score = answer_grader_binary.invoke({"question": question, "generation": generation})
+# print(f"답변 평가: {answer_score}")
 
 
 print("\n# (5) Question Re-writer\n")
@@ -376,6 +376,7 @@ def grade_generation_self(state: "SelfRagOverallState") -> str:
     if hallucination_grade.binary_score == "yes":
         relevance_grade = retrieval_grader_binary.invoke({
             "question": state['question'],
+            "document": state['filtered_documents'],
             "generation": state['generation']
         })
         print("--- 답변-질문 관련성 평가 ---")
@@ -415,8 +416,6 @@ class RoutingDecision(BaseModel):
 #############################
 print('\n6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)\n')
 # 상태 통합: SelfRagOverallState (질문, 생성, 원본 문서, 필터 문서, 생성 횟수)
-#TODO
-
 # 메인 그래프 상태 정의
 class SelfRagOverallState(TypedDict):
     """
@@ -741,7 +740,7 @@ class ChatBot:
 
 
 # 챗봇 인스턴스 생성
-chatbot = ChatBot()
+chatbot = ChatBot() 
 
 # Gradio 인터페이스 생성
 demo = gr.ChatInterface(
@@ -756,5 +755,6 @@ demo = gr.ChatInterface(
     theme=gr.themes.Soft()
 )
 
-# Gradio 앱 실행
-demo.launch(share=True)
+# Gradio 앱 실행: 이 파일을 메인으로 실행할 때만 띄웁니다.
+if __name__ == "__main__":
+    demo.launch(share=True)
