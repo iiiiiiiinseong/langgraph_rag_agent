@@ -11,8 +11,6 @@ langchain-openai==0.2.1
 langchain-community==0.3.1
 langchain-chroma==0.1.4
 langchain-ollama==0.2.0
-langchain-google-genai==2.0.0
-langchain-groq==0.2.0
 
 # LLM & Embedding models
 transformers==4.37.2
@@ -20,7 +18,6 @@ tokenizers==0.15.2
 openai==1.70.0
 tiktoken==0.9.0
 langchain-huggingface==0.1.2 # Embedding models
-
 
 # Vector store & dependencies
 chromadb==0.5.23
