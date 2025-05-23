@@ -34,7 +34,7 @@ from langchain_core.tools import tool
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 # Grader 평가지표용
@@ -205,47 +205,6 @@ retrieval_grader_binary = grade_prompt | structured_llm_BinaryGradeDocuments
     
 #     print("===========================================================================")
 
-print("\n# (2) Answer Generator (일반 RAG) \n")
-
-# (2) Answer Generator (일반 RAG)
-def generator_rag_answer(question, docs):
-
-    template = """
-    [Your task]
-    You are a financial product expert and consultant who always responds in Korean.
-    Your task is to analyze the user query and the given financial product data to recommend the most suitable financial product.
-    
-    [Instructions]
-    1. 질문과 관련된 정보를 문맥에서 신중하게 확인합니다.
-    2. 답변에 질문과 직접 관련된 정보만 사용합니다.
-    3. 문맥에 명시되지 않은 내용에 대해 추측하지 않습니다.
-    4. 불필요한 정보를 피하고, 답변을 간결하고 명확하게 작성합니다.
-    5. 문맥에서 정확한 답변을 생성할 수 없다면 최대한 필요한 답변을 생성한 뒤 마지막에 "더 구체적인 정보를 알려주시면 더욱 명쾌한 답변을 할 수 있습니다."라고 덧붙여 답변합니다.
-    6. 적절한 경우 문맥에서 직접 인용하며, 따옴표를 사용합니다.
-
-    [Context]
-    {context}
-
-    [Question]
-    {question}
-
-    [Answer]
-    """
-
-    prompt = ChatPromptTemplate.from_template(template)
-    local_llm = ChatOpenAI(model='gpt-4o-mini', temperature=0)
-
-    def format_docs(docs):
-        return "\n\n".join([d.page_content for d in docs])
-    
-    rag_chain = prompt | local_llm | StrOutputParser()
-    generation = rag_chain.invoke({"context": format_docs(docs), "question": question})
-    return generation
-
-# generation = generator_rag_answer(question, docs=relevant_docs)
-# print("Generated Answer (일반 RAG):")
-# print(generation)
-
 # (3) Hallucination Grader
 print("\n# (3) Hallucination Grader\n")
 
@@ -362,7 +321,7 @@ print("\n# (6) Generation Evaluation & Decision Nodes\n")
 # (6) Generation Evaluation & Decision Nodes
 def grade_generation_self(state: "SelfRagOverallState") -> str:
     print("--- 답변 평가 (생성) ---")
-    print(f"--- 생성된 답변: {state['generation']} ---")
+    #print(f"--- 생성된 답변: {state['generation']} ---")
     if state['num_generations'] > 2:
         print("--- 생성 횟수 초과, 종료 -> end ---")
         return "end"
@@ -392,7 +351,7 @@ def grade_generation_self(state: "SelfRagOverallState") -> str:
     
 def decide_to_generate_self(state: "SelfRagOverallState") -> str:
     print("--- 평가된 문서 분석 ---")
-    if state['num_generations'] > 2:
+    if state['num_generations'] > 1:
         print("--- 생성 횟수 초과, 생성 결정 ---")
         return "generate"
     # 여기서는 필터링된 문서가 존재하는지 확인
@@ -423,33 +382,113 @@ class SelfRagOverallState(TypedDict):
     """
     question: str
     generation: Annotated[List[str], add]
-    routing_decision: str = "" 
-    num_generations: int = 0
-    documents: List[Document] = []
-    filtered_documents: List[Document] = []
+    routing_decision: str
+    num_generations: int
+    documents: List[Document]
+    filtered_documents: List[Document]
+    history: List[Tuple[str,str]]     # (user, bot) 메시지 쌍 저장용
+
+def initialize_state() -> SelfRagOverallState:
+    """Create a new state with proper initialization of all fields"""
+    return {
+        "question": "",
+        "generation": [],
+        "routing_decision": "",
+        "num_generations": 0,
+        "documents": [],
+        "filtered_documents": [],
+        "history": []
+    }
+
+# 새로운 재작성 전용 LLM 체인 - 히스토리 답변이 있는 경우 이전 대화 맥락에 맞게 질문을 수정하여 문서 서치하기 위함
+def contextualize_query(state: SelfRagOverallState) -> dict:
+    # 최근 3턴 히스토리 추출
+    recent = state['history'][-3:]
+    hist_block = "\n".join(f"User: {u}\nAssistant: {a}" for u,a in recent)
+    payload = {"history": hist_block, "question": state['question']}
+    improved = question_rewriter_chain.invoke(payload)
+    return {"question": improved}
+
+rewrite_input = ChatPromptTemplate.from_messages([
+    ("system", "당신은 금융 상품 챗봇 AI와 유저의 대화 히스토리를 기반으로 마지막 유저의 질문을 분석하여 금융상품 추천 RAG 시스템이 문서를 잘 찾을 수 있게 질문을 구체적으로 재작성하세요."
+    "재작성된 질문은 길이가 너무 길어지지 않게 하며, 유저가 원히는 핵심이 무엇인지 명확하게 들어나는 문자이어야 합니다."
+    "적용되는 RAG의 서치알고리즘은 백터유사도를 기반으로 하기 때문에 이를 고려하여 질문을 재작성하세요."
+    "만약 [History]에 아무것도 없거나 유저의 마지막 질의가 맥락상 금융상품과 관련된 것이 아니라면 유저의 질문을 그대로 작성하세요."),
+    ("system", "[History]\n{history}"),
+    ("human", "[Question]\n{question}\n\n[Improved Question]\n"),
+])
+question_rewriter_chain = rewrite_input | llm | StrOutputParser()
+
 
 # 질문 재작성 노드 (변경 후 검색 루프)
 def transform_query_self(state: SelfRagOverallState) -> dict:
     print("--- 질문 개선 ---")
     new_question = rewrite_question(state['question'])
     print(f"--- 개선된 질문 : \n{new_question} ")
-    state['num_generations'] += 1
-    state['question'] = new_question  # 상태 업데이트
-    print(f"num_generations : {state['num_generations']}")
-    return {"question": new_question, "num_generations": state['num_generations']}
+    new_count = state['num_generations'] + 1
+    print(f"num_generations : {new_count}")
+    return {"question": new_question, "num_generations": new_count}
 
-# 답변 생성 노드 (서브 그래프로부터 받은 필터 문서 우선 사용)
+# 답변 생성 노드 (서브 그래프로부터 받은 필터 문서 우선 사용, 이전 대화를 참고 할 수 있도록 수정)
+def format_chat_history(history):
+    messages = []
+    for user_msg, assistant_msg in history:
+        messages.append(("human", user_msg))
+        messages.append(("ai", assistant_msg))
+    return messages
+
+generate_template = ChatPromptTemplate.from_messages([
+    ("system", 
+     """
+[Your task]
+You are a financial product expert and consultant who always responds in Korean.
+Analyze the user query and the given financial product data to recommend the most suitable product.
+Use the conversation history to maintain context. Rely only on the provided documents and history.
+
+[Instructions]
+1. 질문과 관련된 정보를 문맥에서 신중하게 확인합니다.
+2. 답변에 질문과 직접 관련된 정보만 사용합니다.
+3. 문맥에 명시되지 않은 내용에 대해 추측하지 않습니다.
+4. 불필요한 정보를 피하고, 명확하게 작성합니다.
+5. 문맥에서 정확한 답변을 생성할 수 없다면 마지막에 "더 구체적인 정보를 알려주시면 더욱 명쾌한 답변을 할 수 있습니다."를 추가합니다.     
+""".strip()),
+    ("system", "[Context]\n{context}"),
+    ("system", "[History]\n{formatted_history}"),
+    ("human", "{question}")
+])
+
 def generate_self(state: SelfRagOverallState) -> dict:
-    print("--- 답변 생성 ---")
-    docs = state['filtered_documents'] if state['filtered_documents'] else state['documents']
-    generation = generator_rag_answer(state['question'], docs)
-    state['num_generations'] += 1
-    state['generation'] = generation
-    return {
-        "generation": [generation],         
-        "num_generations": state['num_generations'] + 1,
-    }
+    print("--- 답변 생성 (히스토리 포함) ---")
+    
+    # 최근 대화 제한
+    recent_history = state["history"][10:] if len(state["history"]) > 5 else state["history"][:5]
 
+    # 대화 히스토리 포맷팅
+    formatted_history = ""
+    for user_msg, assistant_msg in recent_history:
+        formatted_history += f"User: {user_msg}\nAssistant: {assistant_msg}\n\n"
+
+    # 2) context 직렬화
+    docs = state['filtered_documents'] or state['documents']
+    context = "\n\n".join(d.page_content for d in docs) if docs else "관련 문서 없음"
+
+    # 3) 프롬프트에 값 넣고 LLM 호출
+    chain = generate_template  | llm | StrOutputParser()
+    out = chain.invoke({
+        "formatted_history": formatted_history,
+        "context": context,
+        "question": state["question"],
+    })
+    answer: str = out
+
+    # 4) 상태 업데이트
+    state["num_generations"] += 1
+    state["generation"] = answer
+
+    return {
+        "generation": [answer],
+        "num_generations": state["num_generations"],
+    }
 
 structured_llm_RoutingDecision = llm.with_structured_output(RoutingDecision)
 
@@ -501,16 +540,30 @@ fallback_prompt = ChatPromptTemplate.from_messages([
     - Inform users they can ask for clarification if needed.
     - Let users know they can ask follow-up questions if needed.
     - End every answer with the sentence: "저는 금융상품 질문에 특화되어 있습니다. 금융상품관련 질문을 주세요."
-    """),
+    """.strip()),
+    ("system", "[History]\n{formatted_history}"),
     ("human", "{question}")
 ])
 
-def llm_fallback_adaptive(state: SelfRagOverallState):
+def llm_fallback_adaptive(state: SelfRagOverallState) -> dict:
     """Generates a direct response using the LLM when the question is unrelated to financial products."""
-    question = state['question']
+    print("--- 일반 질문 Fallback (히스토리 반영) ---")
+    
+    # 대화 히스토리 포맷팅
+    formatted_history = ""
+    for user_msg, assistant_msg in state["history"]:
+        formatted_history += f"User: {user_msg}\nAssistant: {assistant_msg}\n\n"
+
+
     fallback_chain = fallback_prompt | llm | StrOutputParser()
-    generation = fallback_chain.invoke({"question": question})
-    return {"generation": [generation]}
+    out = fallback_chain.invoke({
+        "formatted_history": formatted_history,
+        "question": state["question"],
+    })
+    answer: str = out
+
+    state["history"].append((state["question"], answer))
+    return {"generation": [answer]}
 
 #############################
 # 7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현
@@ -529,29 +582,42 @@ class ToolSearchState(SearchState):
     datasources: List[str]  # 참조할 데이터 소스 목록
 
 # --- 서브그래프 노드 함수 ---
-def search_fixed_deposit_subgraph(state: SearchState):
+def search_fixed_deposit_node(state: SearchState):
     """
     정기예금 상품 검색 (서브 그래프)
     """
-    question = state["question"]
-    print('--- 정기예금 상품 검색 --- ')
-    docs = search_fixed_deposit.invoke(question)
-    if len(docs) > 0:
-        return {"documents": docs}
-    else:
-        return {"documents": [Document(page_content="관련 정기적금 상품정보를 찾을 수 없습니다.")]}
+    docs = search_fixed_deposit.invoke(state["question"])
+    return {"documents": docs}
 
-def search_demand_deposit_subgraph(state: SearchState):
+def search_demand_deposit_node(state: SearchState):
     """
     입출금자유예금 상품 검색 (서브 그래프)
     """
-    question = state["question"]
-    print('--- 입출금자유예금 상품 검색 ---')
-    docs = search_demand_deposit.invoke(question)
-    if len(docs) > 0:
-        return {"documents": docs}
-    else:
-        return {"documents": [Document(page_content="관련 입출금자유예금 상품정보를 찾을 수 없습니다.")]}
+    docs = search_demand_deposit.invoke(state["question"])
+    return {"documents": docs}
+
+
+# def search_fixed_deposit_subgraph(state: SearchState):
+
+#     question = state["question"]
+#     print('--- 정기예금 상품 검색 --- ')
+#     docs = search_fixed_deposit.invoke(question)
+#     if len(docs) > 0:
+#         return {"documents": docs}
+#     else:
+#         return {"documents": [Document(page_content="관련 정기적금 상품정보를 찾을 수 없습니다.")]}
+
+# def search_demand_deposit_subgraph(state: SearchState):
+#     """
+#     입출금자유예금 상품 검색 (서브 그래프)
+#     """
+#     question = state["question"]
+#     print('--- 입출금자유예금 상품 검색 ---')
+#     docs = search_demand_deposit.invoke(question)
+#     if len(docs) > 0:
+#         return {"documents": docs}
+#     else:
+#         return {"documents": [Document(page_content="관련 입출금자유예금 상품정보를 찾을 수 없습니다.")]}
 
 def filter_documents_subgraph(state: SearchState):
     """
@@ -632,8 +698,8 @@ search_builder = StateGraph(ToolSearchState)
 
 # 노드 추가
 search_builder.add_node("analyze_question", analyze_question_tool_search)
-search_builder.add_node("search_fixed_deposit", search_fixed_deposit_subgraph)
-search_builder.add_node("search_demand_deposit", search_demand_deposit_subgraph)
+search_builder.add_node("search_fixed_deposit", search_fixed_deposit_node)      # wapper 함수 말고 직접 invoke 함수 사용하는 것으로 수정
+search_builder.add_node("search_demand_deposit", search_demand_deposit_node)    # 마찬가지로 함께
 search_builder.add_node("filter_documents", filter_documents_subgraph)
 
 # 엣지 구성
@@ -663,6 +729,7 @@ print('\n8. [전체 그래프와 결합] - Self-RAG Overall Graph\n')
 rag_builder = StateGraph(SelfRagOverallState)
 
 # 노드 추가: 검색 서브 그래프, 생성, 질문 재작성 등
+rag_builder.add_node("contextualize_query", contextualize_query)
 rag_builder.add_node("route_question", route_question_adaptive)
 rag_builder.add_node("llm_fallback", llm_fallback_adaptive)
 rag_builder.add_node("search_data", tool_search_graph)         # 서브 그래프로 병렬 검색 및 필터링 수행
@@ -670,7 +737,8 @@ rag_builder.add_node("generate", generate_self)                # 답변 생성 �
 rag_builder.add_node("transform_query", transform_query_self)  # 질문 개선 노드
 
 # 전체 그래프 엣지 구성
-rag_builder.add_edge(START, "route_question")
+rag_builder.add_edge(START, "contextualize_query")
+rag_builder.add_edge("contextualize_query", "route_question")
 rag_builder.add_conditional_edges(
     "route_question",
     route_question_adaptive_self, 
@@ -726,16 +794,24 @@ class ChatBot:
         응답을 반환합니다.
         """
         config = {"configurable": {"thread_id": self.thread_id}}
-        result = adaptive_self_rag_memory.invoke({
-                                                  "question": message,
-                                                  "num_generations": 0 
-                                                 },
-                                                  config=config
-                                                )
+        state = initialize_state()
+        state["question"] = message
+        
+        # history가 있으면 추가
+        if history:
+            state["history"] = history
+        
+        result = adaptive_self_rag_memory.invoke(state, config=config)
 
         gen_list = result.get("generation", [])
-        bot_response = gen_list[-1] if gen_list else "죄송합니다. 답변을 생성할 수 없습니다."
+        if not gen_list:
+            bot_response = "죄송합니다. 답변을 생성할 수 없습니다."
+        else:
+            bot_response = gen_list[-1]  # 마지막 생성된 답변을 사용
 
+        # 대화 이력 업데이트
+        state["history"].append((message, bot_response))
+        print(f"--- History 확인 ---\n{state["history"]}")
         return bot_response
 
 
