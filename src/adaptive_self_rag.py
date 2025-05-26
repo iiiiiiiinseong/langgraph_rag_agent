@@ -20,13 +20,16 @@ warnings.filterwarnings("ignore")
 # 기타 유틸
 import json
 import uuid
-from pprint import pprint
+import re
 from textwrap import dedent
 from operator import add
+from heapq import merge
+from typing import List, Literal, Sequence, TypedDict, Annotated, Tuple
 
+# 서치 알고리즘
+from rank_bm25 import BM25Okapi
 
 # LangChain, Chroma, LLM 관련
-from typing import List, Literal, Sequence, TypedDict, Annotated, Tuple
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -47,10 +50,25 @@ from langgraph.graph import StateGraph, START, END
 import gradio as gr
 
 #############################
-# 2. 임베딩 및 DB 설정
+# 2. 임베딩, DB 설정, 서치 인덱스 생성
 #############################
- 
-embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+from langchain_core.embeddings import Embeddings
+from sentence_transformers import SentenceTransformer
+import torch 
+
+class LangChainSentenceTransformer(Embeddings):
+    def __init__(self, model_name: str):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"[INFO] Using device: {device}")
+        self.model = SentenceTransformer(model_name, device=device)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True).tolist()
+
+    def embed_query(self, text: str) -> List[float]:
+        return self.model.encode(text, show_progress_bar=False, convert_to_numpy=True).tolist()
+
+embeddings_model_koMultitask = LangChainSentenceTransformer("jhgan/ko-sroberta-multitask") # 768차원 임배딩 모델로 변경
 
 # Chroma DB 경로
 CHROMA_DIR = "./../findata/chroma_db"
@@ -63,52 +81,128 @@ DEMAND_JSON_PATH = "./../findata/demand_deposit_20250213.json"
 FIXED_COLLECTION = "fixed_deposit_20250212"
 DEMAND_COLLECTION = "demand_deposit_20250213"
 
-# 정기예금 DB
-fixed_deposit_db = Chroma(
-    embedding_function=embeddings_model,
-    collection_name=FIXED_COLLECTION,
+def load_and_prepare_all_documents(json_paths: list[str]) -> list[Document]:
+    docs: list[Document] = []
+    for path in json_paths:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for entry in data["documents"]:
+            # 본문
+            content = entry["content"]
+            # metadata 필드 영어 키로 통일
+            md = entry.get("metadata", {})
+            bank         = entry.get("bank",         md.get("은행"))
+            product_name = entry.get("product_name", md.get("상품명"))
+            category     = entry.get("type")
+            docs.append(
+                Document(
+                    page_content=content,
+                    metadata={
+                        "id":           entry.get("id"),
+                        "type":         category,
+                        "bank":         bank,
+                        "product_name": product_name
+                    }
+                )
+            )
+    return docs
+
+# JSON 파일 경로 리스트
+ALL_JSON = [
+    FIXED_JSON_PATH,
+    DEMAND_JSON_PATH
+]
+
+all_documents = load_and_prepare_all_documents(ALL_JSON)
+corpus = [doc.page_content.split() for doc in all_documents]
+bm25_index = BM25Okapi(corpus)
+
+# 인제스천
+vector_db = Chroma(
+    embedding_function=embeddings_model_koMultitask,
+    collection_name="combined_products_koMultitask",  # 임배딩 모델에 따른 인제스천 이름 변경
     persist_directory=CHROMA_DIR,
 )
 
-# 입출금자유예금 DB
-demand_deposit_db = Chroma(
-    embedding_function=embeddings_model,
-    collection_name=DEMAND_COLLECTION,
-    persist_directory=CHROMA_DIR,
-)
+# 한 번만 인제스천
+if not vector_db._collection.count():
+    vector_db.add_documents(all_documents)
 
+def extract_bank(query: str) -> str | None:
+    m = re.search(r'([가-힣A-Za-z0-9]+(?:은행|뱅크))', query)
+    return m.group(1) if m else None
 
-# JSON -> Document 리스트 변환 함수
-def load_documents_from_json(json_path: str) -> list[Document]:
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    documents = []
-    for entry in data.get("documents", []):
-        content = entry.get("content", "")
-        metadata = entry.get("metadata", {})
-        documents.append(Document(page_content=content, metadata=metadata))
-
-    return documents
-
-
-# 조건: DB가 비어 있으면 인제스천 (해당 조건이 없으면 계속 추가 됨..)
-if not fixed_deposit_db._collection.count():  # Chroma 내부 count()로 확인
-    print("[INFO] fixed_deposit DB is empty. Ingesting documents...")
-    fixed_docs = load_documents_from_json(FIXED_JSON_PATH)
-    fixed_deposit_db.add_documents(fixed_docs)
-    print(f"[INFO] {len(fixed_docs)} fixed deposit docs ingested.")
-
-if not demand_deposit_db._collection.count():
-    print("[INFO] demand_deposit DB is empty. Ingesting documents...")
-    demand_docs = load_documents_from_json(DEMAND_JSON_PATH)
-    demand_deposit_db.add_documents(demand_docs)
-    print(f"[INFO] {len(demand_docs)} demand deposit docs ingested.")
+def extract_product(query: str) -> str | None:
+    # “~통장”, “~예금”, “~대출” 등으로 마침
+    m = re.search(r'([가-힣A-Za-z0-9]+(?:통장|예금|대출))', query)
+    return m.group(1).strip() if m else None
 
 
 #############################
-# 3. 도구(검색 함수) 정의
+# 3. 서치알고리즘 및 도구(검색 함수) 정의
 #############################
+
+def _search_with_filters(query: str, filters: dict, top_k: int) -> list[Document]:
+    # 1) BM25: 전체 코퍼스에서 score 계산 → metadata 필터 적용해 top_k
+    tokenized = query.split()
+    scores = bm25_index.get_scores(tokenized)
+    idxs   = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+    bm25_docs = []
+    for i in idxs:
+        d = all_documents[i]
+        if all(filters.get(k) is None or d.metadata.get(k)==filters[k] for k in filters):
+            bm25_docs.append(d)
+            if len(bm25_docs)>=top_k: break
+
+    # 2) 벡터: Chroma의 filter 파라미터 사용 (단일키 vs 다중키에 따라 $and 로 묶어서 전달)
+    meta = {k: v for k, v in filters.items() if v is not None}
+    if not meta:
+        vec_docs = vector_db.similarity_search(query, k=top_k)
+    elif len(meta) == 1:
+        # 단일 필터터
+        vec_docs = vector_db.similarity_search(query, k=top_k, filter=meta)
+    else:
+        # 여러 필터는 하나의 연산자($and)로 묶어서 넘겨야 함
+        and_list = [{k: v} for k, v in meta.items()]
+        vec_docs = vector_db.similarity_search(
+                    query, 
+                    k=top_k, 
+                    filter={"$and": and_list}
+        )
+
+    # 3) 중복 제거 병합
+    seen, merged = set(), []
+    for d in bm25_docs + vec_docs:
+        uid = d.metadata["id"]
+        if uid not in seen:
+            seen.add(uid)
+            merged.append(d)
+    return merged
+
+
+# 하이브리드 서치 알고리즘
+def hybrid_core_search(query: str, category: str, bank: str=None, product_name: str=None, top_k: int=2) -> List[Document]:
+    # 1) 메타 필터 준비 (category 필수 포함)
+    filters = {"type": category}
+    if bank: 
+        filters["bank"] = bank
+    if product_name: 
+        filters["product_name"] = product_name
+
+    # 2) 필터 레벨별로 점진적 검색
+    filter_levels = [
+        filters,
+        {**filters, **{"product_name": None}},  # 상품명 제외
+        {**filters, **{"bank": None}},          # 은행 제외
+        {"category": category}                  # 카테고리만
+    ]
+
+    # 3) 순서대로 BM25+벡터 병렬 검색 → 결과 반환
+    for flt in filter_levels:
+        docs = _search_with_filters(query, flt, top_k=top_k)
+        if docs:
+            return docs
+    return []
 
 @tool
 def search_fixed_deposit(query: str) -> List[Document]:
@@ -116,11 +210,8 @@ def search_fixed_deposit(query: str) -> List[Document]:
     Search for relevant fixed deposit (정기예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as interest rates or terms.
     """
-    docs = fixed_deposit_db.similarity_search(query, k=1)
-    if len(docs) > 0:
-        return docs
-    return [Document(page_content="관련 정기예금 상품정보를 찾을 수 없습니다.")]
-
+    bank, product = extract_bank(query), extract_product(query)
+    return hybrid_core_search(query, category="정기예금", bank=bank, product_name=product)
 
 @tool
 def search_demand_deposit(query: str) -> List[Document]:
@@ -128,13 +219,8 @@ def search_demand_deposit(query: str) -> List[Document]:
     Search for demand deposit (입출금자유예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
     """
-    docs = demand_deposit_db.similarity_search(query, k=1)
-    if len(docs) > 0:
-        return docs
-    return [Document(page_content="관련 입출금자유예금 상품정보를 찾을 수 없습니다.")]
-
-
-tools = [search_fixed_deposit, search_demand_deposit]
+    bank, product = extract_bank(query), extract_product(query)
+    return hybrid_core_search(query, category="입출금자유예금", bank=bank, product_name=product)
 
 
 #############################

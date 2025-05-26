@@ -7,11 +7,11 @@
       "입출금자유예금_product_019"
     ],
     "predicted": [
-      "정기예금_product_001"
+      "정기예금_product_023"
     ],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -21,7 +21,11 @@
       "입출금자유예금_product_002",
       "입출금자유예금_product_019"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -35,7 +39,7 @@
       "입출금자유예금_product_036"
     ],
     "predicted": [
-      "정기예금_product_011"
+      "정기예금_product_002"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -61,10 +65,12 @@
       "정기예금_product_006",
       "입출금자유예금_product_034"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
     "note": "search_data"
   },
   {
@@ -73,10 +79,12 @@
       "정기예금_product_006",
       "입출금자유예금_product_034"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
     "note": "search_data"
   },
   {
@@ -86,10 +94,13 @@
       "입출금자유예금_product_010",
       "입출금자유예금_product_025"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_029",
+      "정기예금_product_030"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -100,11 +111,12 @@
       "입출금자유예금_product_025"
     ],
     "predicted": [
-      "입출금자유예금_product_010"
+      "정기예금_product_029",
+      "정기예금_product_030"
     ],
-    "precision": 1.0,
+    "precision": 0.5,
     "recall": 0.3333333333333333,
-    "f1": 0.5,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -114,10 +126,12 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_028"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_007"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -127,10 +141,12 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_028"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_007"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -140,10 +156,12 @@
       "입출금자유예금_product_002",
       "입출금자유예금_product_020"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -153,10 +171,12 @@
       "입출금자유예금_product_002",
       "입출금자유예금_product_020"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -167,7 +187,7 @@
       "입출금자유예금_product_031"
     ],
     "predicted": [
-      "입출금자유예금_product_018"
+      "정기예금_product_005"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -181,10 +201,12 @@
       "입출금자유예금_product_018",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_005"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -194,10 +216,12 @@
       "정기예금_product_008",
       "입출금자유예금_product_012"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_003"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -207,7 +231,10 @@
       "정기예금_product_008",
       "입출금자유예금_product_012"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_009",
+      "정기예금_product_010"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -220,10 +247,13 @@
       "입출금자유예금_product_000",
       "입출금자유예금_product_017"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_029",
+      "정기예금_product_030"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -234,11 +264,14 @@
       "입출금자유예금_product_017"
     ],
     "predicted": [
-      "입출금자유예금_product_000"
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013",
+      "정기예금_product_014"
     ],
-    "precision": 1.0,
-    "recall": 0.3333333333333333,
-    "f1": 0.5,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
     "note": "search_data"
   },
   {
@@ -248,10 +281,12 @@
       "입출금자유예금_product_017",
       "입출금자유예금_product_018"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_001"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -261,7 +296,11 @@
       "입출금자유예금_product_017",
       "입출금자유예금_product_018"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_015",
+      "정기예금_product_014",
+      "정기예금_product_012"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -274,10 +313,12 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_027"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_025"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -287,7 +328,10 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_027"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_024",
+      "정기예금_product_023"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -300,10 +344,13 @@
       "입출금자유예금_product_008",
       "입출금자유예금_product_024"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_029",
+      "정기예금_product_030"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -313,7 +360,10 @@
       "입출금자유예금_product_008",
       "입출금자유예금_product_024"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_028",
+      "정기예금_product_026"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -352,10 +402,14 @@
       "정기예금_product_022",
       "입출금자유예금_product_036"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_002",
+      "정기예금_product_001",
+      "정기예금_product_004"
+    ],
+    "precision": 0.3333333333333333,
+    "recall": 0.3333333333333333,
+    "f1": 0.3333333333333333,
     "note": "search_data"
   },
   {
@@ -378,10 +432,14 @@
       "입출금자유예금_product_023",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_020",
+      "정기예금_product_021",
+      "정기예금_product_022"
+    ],
+    "precision": 0.3333333333333333,
+    "recall": 0.3333333333333333,
+    "f1": 0.3333333333333333,
     "note": "search_data"
   },
   {
@@ -391,7 +449,9 @@
       "입출금자유예금_product_023",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_034"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -404,10 +464,14 @@
       "정기예금_product_027",
       "입출금자유예금_product_033"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013"
+    ],
+    "precision": 0.3333333333333333,
+    "recall": 0.3333333333333333,
+    "f1": 0.3333333333333333,
     "note": "search_data"
   },
   {
@@ -417,7 +481,9 @@
       "정기예금_product_027",
       "입출금자유예금_product_033"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_034"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -429,10 +495,12 @@
       "정기예금_product_018",
       "입출금자유예금_product_009"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_018"
+    ],
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
     "note": "search_data"
   },
   {
@@ -441,7 +509,11 @@
       "정기예금_product_018",
       "입출금자유예금_product_009"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_007",
+      "정기예금_product_017",
+      "정기예금_product_019"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -453,10 +525,12 @@
       "정기예금_product_014",
       "입출금자유예금_product_035"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_014"
+    ],
+    "precision": 1.0,
+    "recall": 0.5,
+    "f1": 0.6666666666666666,
     "note": "search_data"
   },
   {
@@ -465,7 +539,9 @@
       "정기예금_product_014",
       "입출금자유예금_product_035"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_035"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -478,10 +554,15 @@
       "정기예금_product_034",
       "입출금자유예금_product_011"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_002",
+      "정기예금_product_001",
+      "정기예금_product_003",
+      "정기예금_product_004"
+    ],
+    "precision": 0.25,
+    "recall": 0.3333333333333333,
+    "f1": 0.28571428571428575,
     "note": "search_data"
   },
   {
@@ -491,7 +572,10 @@
       "정기예금_product_034",
       "입출금자유예금_product_011"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_009",
+      "정기예금_product_010"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -504,10 +588,12 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_037"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_005"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -517,11 +603,13 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_037"
     ],
-    "predicted": [],
-    "precision": null,
-    "recall": null,
-    "f1": null,
-    "note": "llm_fallback"
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "note": "search_data"
   },
   {
     "question": "\"저는 30대 중반의 직장인으로, 안정적인 자산 관리를 원하고 있습니다. 우리은행의 WON플러스예금과 iM뱅크의 iM주거래우대예금(첫만남고객형) 중에서 어떤 상품이 더 나은 금리를 제공하고, 우대조건이 더 유리한지 비교해 주실 수 있나요? 또한, 만기 후 이자 지급 방식도 알고 싶습니다.\"",
@@ -530,10 +618,12 @@
       "정기예금_product_017",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_006"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -543,7 +633,9 @@
       "정기예금_product_017",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_034"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -582,10 +674,13 @@
       "입출금자유예금_product_002",
       "입출금자유예금_product_024"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_020",
+      "정기예금_product_021"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -595,7 +690,11 @@
       "입출금자유예금_product_002",
       "입출금자유예금_product_024"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_027",
+      "정기예금_product_028",
+      "정기예금_product_026"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -607,10 +706,13 @@
       "정기예금_product_009",
       "입출금자유예금_product_017"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_009",
+      "정기예금_product_010"
+    ],
+    "precision": 0.5,
+    "recall": 0.5,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -620,11 +722,12 @@
       "입출금자유예금_product_017"
     ],
     "predicted": [
-      "정기예금_product_009"
+      "정기예금_product_009",
+      "정기예금_product_010"
     ],
-    "precision": 1.0,
+    "precision": 0.5,
     "recall": 0.5,
-    "f1": 0.6666666666666666,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -634,10 +737,12 @@
       "입출금자유예금_product_000",
       "입출금자유예금_product_038"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_019"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -660,10 +765,12 @@
       "정기예금_product_008",
       "입출금자유예금_product_038"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_005"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -686,10 +793,13 @@
       "입출금자유예금_product_026",
       "입출금자유예금_product_029"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_027",
+      "정기예금_product_026"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -699,10 +809,15 @@
       "입출금자유예금_product_026",
       "입출금자유예금_product_029"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_032",
+      "정기예금_product_017",
+      "정기예금_product_021",
+      "정기예금_product_027"
+    ],
+    "precision": 0.25,
+    "recall": 0.3333333333333333,
+    "f1": 0.28571428571428575,
     "note": "search_data"
   },
   {
@@ -712,10 +827,12 @@
       "정기예금_product_025",
       "입출금자유예금_product_035"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_024"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -725,7 +842,9 @@
       "정기예금_product_025",
       "입출금자유예금_product_035"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_035"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -738,10 +857,14 @@
       "정기예금_product_028",
       "입출금자유예금_product_014"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_027",
+      "정기예금_product_028",
+      "정기예금_product_026"
+    ],
+    "precision": 0.6666666666666666,
+    "recall": 0.6666666666666666,
+    "f1": 0.6666666666666666,
     "note": "search_data"
   },
   {
@@ -751,10 +874,13 @@
       "정기예금_product_028",
       "입출금자유예금_product_014"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_027",
+      "정기예금_product_026"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -764,10 +890,12 @@
       "입출금자유예금_product_009",
       "입출금자유예금_product_038"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_018"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -790,10 +918,14 @@
       "정기예금_product_023",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013"
+    ],
+    "precision": 0.3333333333333333,
+    "recall": 0.3333333333333333,
+    "f1": 0.3333333333333333,
     "note": "search_data"
   },
   {
@@ -803,7 +935,9 @@
       "정기예금_product_023",
       "입출금자유예금_product_031"
     ],
-    "predicted": [],
+    "predicted": [
+      "정기예금_product_034"
+    ],
     "precision": 0.0,
     "recall": 0.0,
     "f1": 0.0,
@@ -817,7 +951,7 @@
       "입출금자유예금_product_037"
     ],
     "predicted": [
-      "입출금자유예금_product_010"
+      "정기예금_product_005"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -831,10 +965,12 @@
       "입출금자유예금_product_010",
       "입출금자유예금_product_037"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_005"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -845,7 +981,7 @@
       "입출금자유예금_product_027"
     ],
     "predicted": [
-      "정기예금_product_033"
+      "정기예금_product_014"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -859,10 +995,13 @@
       "정기예금_product_033",
       "입출금자유예금_product_027"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_033",
+      "정기예금_product_031"
+    ],
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -873,11 +1012,13 @@
       "입출금자유예금_product_036"
     ],
     "predicted": [
-      "입출금자유예금_product_018"
+      "정기예금_product_020",
+      "정기예금_product_021",
+      "정기예금_product_022"
     ],
-    "precision": 1.0,
+    "precision": 0.3333333333333333,
     "recall": 0.3333333333333333,
-    "f1": 0.5,
+    "f1": 0.3333333333333333,
     "note": "search_data"
   },
   {
@@ -901,7 +1042,7 @@
       "입출금자유예금_product_015"
     ],
     "predicted": [
-      "입출금자유예금_product_014"
+      "정기예금_product_007"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -930,10 +1071,12 @@
       "입출금자유예금_product_016",
       "입출금자유예금_product_036"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_034"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -943,10 +1086,12 @@
       "입출금자유예금_product_016",
       "입출금자유예금_product_036"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_034"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -956,11 +1101,13 @@
       "정기예금_product_021"
     ],
     "predicted": [
-      "정기예금_product_020"
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013"
     ],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "precision": 0.3333333333333333,
+    "recall": 0.5,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -969,10 +1116,14 @@
       "정기예금_product_015",
       "정기예금_product_021"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_015",
+      "정기예금_product_012",
+      "정기예금_product_013"
+    ],
+    "precision": 0.3333333333333333,
+    "recall": 0.5,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -983,12 +1134,12 @@
       "입출금자유예금_product_032"
     ],
     "predicted": [
-      "입출금자유예금_product_018",
+      "정기예금_product_029",
       "정기예금_product_030"
     ],
-    "precision": 1.0,
-    "recall": 0.6666666666666666,
-    "f1": 0.8,
+    "precision": 0.5,
+    "recall": 0.3333333333333333,
+    "f1": 0.4,
     "note": "search_data"
   },
   {
@@ -999,11 +1150,11 @@
       "입출금자유예금_product_032"
     ],
     "predicted": [
-      "입출금자유예금_product_018"
+      "정기예금_product_034"
     ],
-    "precision": 1.0,
-    "recall": 0.3333333333333333,
-    "f1": 0.5,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
     "note": "search_data"
   },
   {
@@ -1013,10 +1164,12 @@
       "입출금자유예금_product_007",
       "입출금자유예금_product_034"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_034"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -1026,10 +1179,12 @@
       "입출금자유예금_product_007",
       "입출금자유예금_product_034"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_034"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   },
   {
@@ -1040,7 +1195,7 @@
       "입출금자유예금_product_033"
     ],
     "predicted": [
-      "입출금자유예금_product_033"
+      "정기예금_product_003"
     ],
     "precision": 1.0,
     "recall": 0.3333333333333333,
@@ -1054,10 +1209,12 @@
       "입출금자유예금_product_006",
       "입출금자유예금_product_033"
     ],
-    "predicted": [],
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
+    "predicted": [
+      "정기예금_product_003"
+    ],
+    "precision": 1.0,
+    "recall": 0.3333333333333333,
+    "f1": 0.5,
     "note": "search_data"
   }
 ]

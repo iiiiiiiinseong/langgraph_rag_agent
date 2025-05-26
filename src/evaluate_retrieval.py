@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 from adaptive_self_rag import (
     question_router,      # 금융 vs 일반
-    tool_search_graph,    # 병렬검색→필터→END
+    search_fixed_deposit,
+    search_demand_deposit,
     rewrite_question
 )
 
@@ -23,7 +24,9 @@ def load_docs(path):
 fixed_json  = load_docs("./../findata/fixed_deposit_20250212.json")
 demand_json = load_docs("./../findata/demand_deposit_20250213.json")
 all_json    = fixed_json + demand_json
-content_to_id = { e["content"]: e["id"] for e in all_json }
+
+# id → type 매핑 gold_ids → 어떤 래퍼 함수를 쓸지 결정용
+id_to_type = { e["id"]: e["type"] for e in all_json } 
 
 # 4) 매핑 로드
 def load_map(path: str, multi=False) -> List[Dict]:
@@ -53,29 +56,26 @@ def eval_question(q: str, gold_ids: List[str]) -> Dict:
             "cycles": 0
         }
 
-    # 2) multi-cycle 검색·필터링 시뮬레이션
+    # 2) 카테고리별 래퍼 검색 (multi-cycle 재시도)
     question = q
     filtered = []
     for cycle in range(1, MAX_CYCLES+1):
-        state0 = {
-            "question": question,
-            "documents": [],
-            "filtered_documents": []
-        }
-        out = tool_search_graph.invoke(state0)
-        filtered = out["filtered_documents"]
-        print(f"    – cycle {cycle}: filtered {len(filtered)} docs")
-        if filtered:
-            break
-        # 다음 사이클 질문 재작성
-        question = rewrite_question(question)
+         # gold_ids의 첫 문서로부터 카테고리 결정
+         cat = id_to_type[gold_ids[0]]
+         if cat == "정기예금":
+             filtered = search_fixed_deposit.invoke(question)
+         elif cat == "입출금자유예금":
+             filtered = search_demand_deposit.invoke(question)
+         else:
+             pass
+         print(f"    - cycle {cycle}: filtered {len(filtered)} docs")
+         if filtered:
+             break
+         question = rewrite_question(question)
 
     # 3) 최종 filtered → ID 매핑 → metric 계산
-    pred_ids = {
-        content_to_id[d.page_content]
-        for d in filtered
-        if d.page_content in content_to_id
-    }
+    pred_ids = { d.metadata["id"] for d in filtered }
+
     gold_set = set(gold_ids)
     tp = len(pred_ids & gold_set)
     p  = tp/len(pred_ids) if pred_ids else 0.0
@@ -154,3 +154,26 @@ for metric in METRICS:
     for i,v in enumerate([avg_single[metric], avg_multi[metric]]):
         ax.text(i, v+0.02, f"{v:.2f}", ha="center")
     fig.savefig(f"{metric}_filtered_comparison.png")
+
+# 9) JSON으로 결과 저장
+def save_results_to_json(path: str, results: List[Dict]):
+    """
+    question, gold, predicted, precision, recall, f1, note 만 뽑아서 JSON으로 저장
+    """
+    slim = []
+    for r in results:
+        slim.append({
+            "question":  r["question"],
+            "gold":      r["gold"],
+            "predicted": r["predicted"],
+            "precision": r["precision"],
+            "recall":    r["recall"],
+            "f1":        r["f1"],
+            "note":      r["note"],
+        })
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(slim, f, ensure_ascii=False, indent=2)
+
+# 단일/다중 매핑 결과를 각각 JSON으로 저장
+save_results_to_json("results_single.json", res_single)
+save_results_to_json("results_multi.json",  res_multi)
