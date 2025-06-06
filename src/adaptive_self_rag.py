@@ -39,6 +39,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_community.tools import TavilySearchResults
+from langchain_core.runnables import RunnableLambda
 
 # Grader 평가지표용
 from pydantic import BaseModel, Field
@@ -74,12 +76,18 @@ embeddings_model_koMultitask = LangChainSentenceTransformer("jhgan/ko-sroberta-m
 CHROMA_DIR = "./../findata/chroma_db"
 
 # JSON 데이터 경로
-FIXED_JSON_PATH = "./../findata/fixed_deposit_20250212.json"
-DEMAND_JSON_PATH = "./../findata/demand_deposit_20250213.json"
+FIXED_JSON_PATH = "./../findata/fixed_deposit.json"
+DEMAND_JSON_PATH = "./../findata/demand_deposit.json"
+LOAN_JSON_PATH = "./../findata/loan.json"
+SAVINGS_JSON_PATH = "./../findata/savings.json"
+
 
 # DB 이름
-FIXED_COLLECTION = "fixed_deposit_20250212"
-DEMAND_COLLECTION = "demand_deposit_20250213"
+FIXED_COLLECTION = "fixed_deposit"
+DEMAND_COLLECTION = "demand_deposit"
+LOAN_COLLECTION = "loan"
+SAVINGS_COLLECTION = "savings"
+
 
 def load_and_prepare_all_documents(json_paths: list[str]) -> list[Document]:
     docs: list[Document] = []
@@ -110,7 +118,9 @@ def load_and_prepare_all_documents(json_paths: list[str]) -> list[Document]:
 # JSON 파일 경로 리스트
 ALL_JSON = [
     FIXED_JSON_PATH,
-    DEMAND_JSON_PATH
+    DEMAND_JSON_PATH,
+    LOAN_JSON_PATH,
+    SAVINGS_JSON_PATH,
 ]
 
 all_documents = load_and_prepare_all_documents(ALL_JSON)
@@ -126,10 +136,16 @@ vector_db = Chroma(
 
 # 한 번만 인제스천
 if not vector_db._collection.count():
+    print("DB에 문서 없음으로 인제스천 진행")
     vector_db.add_documents(all_documents)
 
+#인제스천 확인
+print("총 문서 수:", len(all_documents))
+from collections import Counter
+print(Counter(doc.metadata['type'] for doc in all_documents))
+
 def extract_bank(query: str) -> str | None:
-    m = re.search(r'([가-힣A-Za-z0-9]+(?:은행|뱅크))', query)
+    m = re.search(r'([가-힣A-Za-z0-9]+?(은행|뱅크|회사))', query)
     return m.group(1) if m else None
 
 def extract_product(query: str) -> str | None:
@@ -170,18 +186,22 @@ def _search_with_filters(query: str, filters: dict, top_k: int) -> list[Document
                     filter={"$and": and_list}
         )
 
-    # 3) 중복 제거 병합
+    # 3) 중복 제거 및 PDF 링크 추가 처리
     seen, merged = set(), []
     for d in bm25_docs + vec_docs:
         uid = d.metadata["id"]
         if uid not in seen:
             seen.add(uid)
+            # PDF 링크가 있으면 page_content에 추가
+            pdf = d.metadata.get("pdf_link")
+            if pdf and "pdf_link" not in d.page_content:
+                d.page_content += f"\n\n📄 [상품설명서 PDF 보기]({pdf})"
             merged.append(d)
     return merged
 
 
 # 하이브리드 서치 알고리즘
-def hybrid_core_search(query: str, category: str, bank: str=None, product_name: str=None, top_k: int=2) -> List[Document]:
+def hybrid_core_search(query: str, category: str, bank: str=None, product_name: str=None, top_k: int=3) -> List[Document]:
     # 1) 메타 필터 준비 (category 필수 포함)
     filters = {"type": category}
     if bank: 
@@ -204,6 +224,47 @@ def hybrid_core_search(query: str, category: str, bank: str=None, product_name: 
             return docs
     return []
 
+BANK_NORMALIZE = {
+    "국민": "KB국민은행",
+    "국민은행": "KB국민은행",
+    "수협": "Sh수협은행",
+    "수협은행": "Sh수협은행",
+    "신한": "신한은행",
+    "신한은행": "신한은행",
+    "농협": "NH농협은행",
+    "NH": "NH농협은행",
+    "농협은행": "NH농협은행",
+    "우리": "우리은행",
+    "우리은행": "우리은행",
+    "IBK": "IBK기업은행",
+    "기업은행": "IBK기업은행",
+    "IBK기업은행": "IBK기업은행",
+    "하나": "하나은행",
+    "하나은행": "하나은행",
+    "카카오": "카카오뱅크",
+    "카카오뱅크": "카카오뱅크",
+    "부산": "부산은행",
+    "부산은행": "부산은행",
+    }
+
+def get_banks_in_docs(documents: list[Document]) -> set[str]:
+    banks = set()
+    for doc in documents:
+        bank = doc.metadata.get("bank", "")
+        # IBK기업은행, IBK, 기업은행 모두 매칭할 수 있도록 처리 필요시 normalize
+        if bank:
+            banks.add(bank)
+    return banks
+
+
+def extract_and_normalize_banks(query: str) -> list[str]:
+    found = set()
+    for k in BANK_NORMALIZE:
+        if k in query:
+            found.add(BANK_NORMALIZE[k])
+    return list(found)
+
+
 @tool
 def search_fixed_deposit(query: str) -> List[Document]:
     """
@@ -222,6 +283,55 @@ def search_demand_deposit(query: str) -> List[Document]:
     bank, product = extract_bank(query), extract_product(query)
     return hybrid_core_search(query, category="입출금자유예금", bank=bank, product_name=product)
 
+@tool
+def search_loan(query: str) -> List[Document]:
+    """
+    Search for loan (대출) product information using semantic similarity.
+    This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
+    """
+    bank, product = extract_bank(query), extract_product(query)
+    return hybrid_core_search(query, category="대출", bank=bank, product_name=product)
+
+@tool
+def search_savings(query:str) -> List[Document]:
+    """
+    Search for savings (적금) product information using semantic similarity.
+    This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
+    """
+    bank, product = extract_bank(query), extract_product(query)
+    return hybrid_core_search(query, category="적금", bank=bank, product_name=product)
+
+@tool
+def web_search(query: str) -> List[str]:
+    """
+    This tool serves as a supplementary utility for the financial product recommendation model.
+    It retrieves up-to-date external information via web search using the Tavily API, 
+    especially when relevant data is not available in the local vector databases
+
+    Unlike the RAG-based tools that query embedded product databases,
+    this tool is designed to handle broader or real-time questions—such as current interest rates, financial trends,
+    or general queries outside the scope of structured deposit data.
+
+    It returns the top 2 semantically relevant documents from the web.
+    """
+
+    tavily_search = TavilySearchResults(max_results=2)
+    docs = tavily_search.invoke(query)
+
+    formatted_docs = []
+    for doc in docs:
+        formatted_docs.append(
+            Document(
+                page_content= f'<Document href="{doc["url"]}"/>\n{doc["content"]}\n</Document>',
+                metadata={"source": "web search", "url": doc["url"]}
+                )
+        )
+
+    if len(formatted_docs) > 0:
+        return formatted_docs
+    
+    return [Document(page_content="관련 정보를 찾을 수 없습니다.")]
+
 
 #############################
 # 4. LLM 초기화 & 도구 바인딩
@@ -230,11 +340,8 @@ def search_demand_deposit(query: str) -> List[Document]:
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, streaming=True)
 
 #############################
-# 5. LLM 체인 (Retrieval Grader / Answer Generator / Hallucination / Answer Graders / Question Re-writer)
+# 5. LLM 체인 (Retrieval Grader / Hallucination / Answer Graders / Question Re-writer)
 #############################
-print("\n===================================================================\n ")
-print("LLM 체인\n")
-print("# (1) Retrieval Grader\n")
 
 # (1) Retrieval Grader (검색평가)
 class BinaryGradeDocuments(BaseModel):
@@ -271,29 +378,7 @@ grade_prompt = ChatPromptTemplate.from_messages([
 
 retrieval_grader_binary = grade_prompt | structured_llm_BinaryGradeDocuments
 
-# question = "어떤 예금 상품이 있는지 설명해주세요."
-# print(f'\nquestion : {question}\n')
-# retrieved_docs = fixed_deposit_db.similarity_search(question, k=2)
-# print(f"검색된 문서 수: {len(retrieved_docs)}")
-# print("===============================================================================")
-# print()
-
-# relevant_docs = []
-# for doc in retrieved_docs:
-#     print("문서:\n", doc.page_content)
-#     print("---------------------------------------------------------------------------")
-
-#     relevance = retrieval_grader_binary.invoke({"question": question, "document": doc.page_content})
-#     print(f"문서 관련성: {relevance}")
-
-#     if relevance.binary_score == 'yes':
-#         relevant_docs.append(doc)
-    
-#     print("===========================================================================")
-
 # (3) Hallucination Grader
-print("\n# (3) Hallucination Grader\n")
-
 class GradeHallucinations(BaseModel):
     """Binary score for hallucination present in generation answer."""
     binary_score: str = Field(
@@ -329,10 +414,7 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
 )
 
 hallucination_grader = hallucination_prompt | structured_llm_HradeHallucinations
-# hallucination = hallucination_grader.invoke({"documents": relevant_docs, "generation": generation})
-# print(f"환각 평가: {hallucination}")
 
-print("\n# (4) Answer Grader\n")
 # (4) Answer Grader 
 class BinaryGradeAnswer(BaseModel):
     """Binary score to assess answer addresses question."""
@@ -369,13 +451,7 @@ answer_prompt = ChatPromptTemplate.from_messages(
 )
 
 answer_grader_binary = answer_prompt | structured_llm_BinaryGradeAnswer
-# print("Question:", question)
-# print("Generation:", generation)
-# answer_score = answer_grader_binary.invoke({"question": question, "generation": generation})
-# print(f"답변 평가: {answer_score}")
 
-
-print("\n# (5) Question Re-writer\n")
 # (5) Question Re-writer
 def rewrite_question(question: str) -> str:
     """
@@ -403,12 +479,11 @@ def rewrite_question(question: str) -> str:
     rewritten_question = question_rewriter.invoke({"question": question})
     return rewritten_question
 
-print("\n# (6) Generation Evaluation & Decision Nodes\n")
 # (6) Generation Evaluation & Decision Nodes
 def grade_generation_self(state: "SelfRagOverallState") -> str:
     print("--- 답변 평가 (생성) ---")
-    #print(f"--- 생성된 답변: {state['generation']} ---")
-    if state['num_generations'] > 2:
+    print(f"--- 생성된 답변: {state['generation']} ---")
+    if state['num_generations'] > 1:
         print("--- 생성 횟수 초과, 종료 -> end ---")
         return "end"
     # 평가를 위한 문서 텍스트 구성
@@ -459,7 +534,7 @@ class RoutingDecision(BaseModel):
 #############################
 # 6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)
 #############################
-print('\n6. 상태 정의 및 노드 함수 (전체 Adaptive 체인)\n')
+
 # 상태 통합: SelfRagOverallState (질문, 생성, 원본 문서, 필터 문서, 생성 횟수)
 # 메인 그래프 상태 정의
 class SelfRagOverallState(TypedDict):
@@ -655,11 +730,9 @@ def llm_fallback_adaptive(state: SelfRagOverallState) -> dict:
 # 7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현
 #############################
 
-print('\n7. [서브 그래프 통합] - 병렬 검색 서브 그래프 구현\n')
 # --- 상태 정의 (검색 서브 그래프 전용) ---
 class SearchState(TypedDict):
     question: str
-    # generation: str
     documents: Annotated[List[Document], add]  # 팬아웃된 각 검색 결과를 누적할 것
     filtered_documents: List[Document]         # 관련성 평가를 통과한 문서들
 
@@ -682,28 +755,34 @@ def search_demand_deposit_node(state: SearchState):
     docs = search_demand_deposit.invoke(state["question"])
     return {"documents": docs}
 
+def search_savings_node(state: SearchState):
+    """
+    적금 상품 검색 (서브 그래프)
+    """
+    docs = search_savings.invoke(state["question"])
+    return {"documents":docs}
 
-# def search_fixed_deposit_subgraph(state: SearchState):
+def search_loan_node(state: SearchState):
+    """
+    대출 상품 검색 (서브 그래프)
+    """
+    docs = search_loan.invoke(state["question"])
+    return {"documents":docs}
 
-#     question = state["question"]
-#     print('--- 정기예금 상품 검색 --- ')
-#     docs = search_fixed_deposit.invoke(question)
-#     if len(docs) > 0:
-#         return {"documents": docs}
-#     else:
-#         return {"documents": [Document(page_content="관련 정기적금 상품정보를 찾을 수 없습니다.")]}
+def search_web_search_subgraph(state: SearchState):
+    """
+    웹 검색 기반 금융 정보 검색 (서브 그래프)
+    """
+    question = state["question"]
+    print('--- 웹 검색 실행 ---')
 
-# def search_demand_deposit_subgraph(state: SearchState):
-#     """
-#     입출금자유예금 상품 검색 (서브 그래프)
-#     """
-#     question = state["question"]
-#     print('--- 입출금자유예금 상품 검색 ---')
-#     docs = search_demand_deposit.invoke(question)
-#     if len(docs) > 0:
-#         return {"documents": docs}
-#     else:
-#         return {"documents": [Document(page_content="관련 입출금자유예금 상품정보를 찾을 수 없습니다.")]}
+    docs = web_search.invoke({"query": question})  # 딕셔너리 형태로 넘김
+
+    if len(docs) > 0:
+        return {"documents": docs}
+    else:
+        return {"documents": [Document(page_content="관련 웹 정보를 찾을 수 없습니다.")]}
+    
 
 def filter_documents_subgraph(state: SearchState):
     """
@@ -712,8 +791,8 @@ def filter_documents_subgraph(state: SearchState):
     print("--- 문서 관련성 평가 (서브 그래프) ---")
     question = state["question"]
     documents = state["documents"]
-    
     filtered_docs = []
+
     for d in documents:
         score = retrieval_grader_binary.invoke({
             "question": question,
@@ -724,19 +803,74 @@ def filter_documents_subgraph(state: SearchState):
             filtered_docs.append(d)
         else:
             print("--- 문서 관련성: 없음 ---")
-    return {"filtered_documents": filtered_docs}
+
+    # 질문에서 요구되는 은행명(엔티티) 추출 및 표준화
+    requested_banks = extract_and_normalize_banks(question)
+    # 관련성 통과된 문서에 등장한 은행명 집합 추출
+    found_banks = get_banks_in_docs(filtered_docs)
+
+    # ===================== 싱글/없음 엔티티 분기 =====================
+    if len(requested_banks) <= 1:
+        # - 질문에서 은행명이 1개 이하로 추출된 경우
+        # - (1) 관련성 평가만 한 결과(filtered_docs) 반환
+        # - (2) 누락 은행 보완, 재검색 등 추가 로직 "생략"
+        return {"filtered_documents": filtered_docs}
+    
+    # ===================== 멀티 엔티티(2개 이상) 분기 =====================
+    missing_banks = [b for b in requested_banks if b not in found_banks]
+    PRODUCT_CATEGORIES = ["정기예금", "입출금자유예금", "적금", "대출"]
+
+    # (state에 누락 은행 보완 횟수 관리용 변수 추가)
+    if "missing_bank_retry" not in state:
+        state["missing_bank_retry"] = 0
+
+    # (이미 확보한 은행+카테고리 쌍 관리)
+    covered_pairs = set((doc.metadata.get("bank"), doc.metadata.get("type")) for doc in filtered_docs)
+
+    # ========== (1) 누락 은행 보완 재검색 로직 (일단 최대 횟수 1까지 설정) ==========
+    if missing_banks and state["missing_bank_retry"] < 1:
+        # 누락 은행마다, 각 카테고리별로 추가 검색
+        for bank in missing_banks:
+            for category in PRODUCT_CATEGORIES:
+                if (bank, category) in covered_pairs:
+                    continue  # 이미 확보된 경우 생략
+                more_docs = hybrid_core_search(question, category=category, bank=bank, top_k=2)
+                for d in more_docs:
+                    if (d.metadata.get("bank"), d.metadata.get("type")) in covered_pairs:
+                        continue
+                    # 관련성 평가(batch로 할 수도 있음)
+                    score = retrieval_grader_binary.invoke({
+                        "question": question,
+                        "document": d.page_content
+                    })
+                    if score.binary_score == "yes":
+                        filtered_docs.append(d)
+                        covered_pairs.add((bank, category))
+        state["missing_bank_retry"] += 1
+        # 한 번 더 커버리지 체크 하도록(그래프 반복 등) 상태 반환
+        return {"filtered_documents": filtered_docs, "missing_bank_retry": state["missing_bank_retry"]}
+
+    # ========== (2) 보완 1회 시도 후에도 누락 은행 남을 경우 ==========
+    if missing_banks and state["missing_bank_retry"] >= 1:
+        # 더 이상 보완 안 하고, 지금까지 확보한 문서들 중 상위 3개만 남김 (예시)
+        filtered_docs = filtered_docs[:3]
+        return {"filtered_documents": filtered_docs, "missing_bank_retry": state["missing_bank_retry"]}
+
+    # (모든 은행이 커버됐거나, 보완이 불필요한 경우)
+    return {"filtered_documents": filtered_docs, "missing_bank_retry": state["missing_bank_retry"]}
+
 
 # --- 질문 라우팅 (서브 그래프 전용) ---
 class SubgraphToolSelector(BaseModel):
     """Selects the most appropriate tool for the user's question."""
-    tool: Literal["search_fixed_deposit", "search_demand_deposit"] = Field(
-        description="Select one of the tools: search_fixed_deposit, search_demand_deposit based on the user's question."
+    tool: Literal["search_fixed_deposit", "search_demand_deposit", "search_loan","search_savings", "web_search"] = Field(
+        description="Select one of the tools: search_fixed_deposit, search_demand_deposit, search_loan, search_savings or web_search based on the user's question."
     )
 
 class SubgraphToolSelectors(BaseModel):
     """Selects all tools relevant to the user's question."""
     tools: List[SubgraphToolSelector] = Field(
-        description="Select one or more tools: search_fixed_deposit, search_demand_deposit based on the user's question."
+        description="Select one or more tools: search_fixed_deposit, search_demand_deposit, search_loan, search_savings or web_search based on the user's question."
     )
 
 structured_llm_SubgraphToolSelectors = llm.with_structured_output(SubgraphToolSelectors)
@@ -746,7 +880,11 @@ You are an AI assistant specializing in routing user questions to the appropriat
 Use the following guidelines:
 - For fixed deposit product queries, use the search_fixed_deposit tool.
 - For demand deposit product queries, use the search_demand_deposit tool.
-Always choose the appropriate tools based on the user's question.
+- For loan product queries, use the search_loan tool.
+- For savings product queries, use the search_savings tool.
+- For general financial or real-time information queries, or when the user explicitly mentions 'web search',
+  use the web_search tool.
+  Always choose the appropriate tools based on the user's question.
 """)
 subgraph_route_prompt = ChatPromptTemplate.from_messages(
     [
@@ -770,22 +908,36 @@ def route_datasources_tool_search(state: ToolSearchState) -> Sequence[str]:
     """
     라우팅 결과에 따라 실행할 검색 노드를 결정 (병렬로 팬아웃)
     """
-    if set(state['datasources']) == {'search_fixed_deposit'}:
+    datasources = set(state['datasources'])
+    print("--- 선택된 검색 도구 ---")
+    print(datasources)
+    # 명확히 하나만 선택된 경우
+    if datasources == {'search_fixed_deposit'}:
         return ['search_fixed_deposit']
-    elif set(state['datasources']) == {'search_demand_deposit'}:
+    elif datasources == {'search_demand_deposit'}:
         return ['search_demand_deposit']
-    # 둘 다 선택되거나 모호할 때는 두 도구 모두 실행
-    return ['search_fixed_deposit', 'search_demand_deposit']
+    elif datasources == {"search_loan"}:
+        return ['search_loan']
+    elif datasources == {"search_savings"}:
+        return ['search_savings']
+    elif datasources == {'web_search'}:
+        return ['web_search']
+
+    # 도구가 전부 실행되거나 애매모호할 때는 도구 전부 실행
+    return ['search_fixed_deposit', 'search_demand_deposit', 'search_loan', 'search_savings', 'web_search']
+
 
 
 # --- 서브 그래프 빌더 구성 ---
 search_builder = StateGraph(ToolSearchState)
 
-
 # 노드 추가
 search_builder.add_node("analyze_question", analyze_question_tool_search)
-search_builder.add_node("search_fixed_deposit", search_fixed_deposit_node)      # wapper 함수 말고 직접 invoke 함수 사용하는 것으로 수정
-search_builder.add_node("search_demand_deposit", search_demand_deposit_node)    # 마찬가지로 함께
+search_builder.add_node("search_fixed_deposit", search_fixed_deposit_node)   
+search_builder.add_node("search_demand_deposit", search_demand_deposit_node) 
+search_builder.add_node("search_loan",search_loan_node)
+search_builder.add_node("search_savings",search_savings_node)
+search_builder.add_node("web_search", search_web_search_subgraph)
 search_builder.add_node("filter_documents", filter_documents_subgraph)
 
 # 엣지 구성
@@ -796,11 +948,17 @@ search_builder.add_conditional_edges(
     {
         "search_fixed_deposit": "search_fixed_deposit",
         "search_demand_deposit": "search_demand_deposit",
+        "search_loan": "search_loan",
+        "search_savings": "search_savings",
+        "web_search": "web_search"
     }
 )
 # 두 검색 노드 모두 실행한 후 각각의 결과는 filter_documents로 팬인(fan-in) 처리
 search_builder.add_edge("search_fixed_deposit", "filter_documents")
 search_builder.add_edge("search_demand_deposit", "filter_documents")
+search_builder.add_edge("search_loan","filter_documents")
+search_builder.add_edge("search_savings","filter_documents")
+search_builder.add_edge("web_search", "filter_documents")
 search_builder.add_edge("filter_documents", END)
 
 # 서브 그래프 컴파일
@@ -857,10 +1015,8 @@ rag_builder.add_conditional_edges(
 # MemorySaver 인스턴스 생성 (대화 상태를 저장할 in-memory 키-값 저장소)
 memory = MemorySaver()
 adaptive_self_rag_memory = rag_builder.compile(checkpointer=memory)
-# adaptive_self_rag = rag_builder.compile()
 
 # 그래프 파일 저장하기
-# display(Image(adaptive_self_rag.get_graph().draw_mermaid_png()))
 with open("adaptive_self_rag_memory.mmd", "w") as f:
     f.write(adaptive_self_rag_memory.get_graph(xray=True).draw_mermaid()) # 저장된 mmd 파일에서 코드 복사 후 https://mermaid.live 에 붙여넣기.
 
@@ -868,6 +1024,17 @@ with open("adaptive_self_rag_memory.mmd", "w") as f:
 #############################
 # 9. Gradio Chatbot 구성 및 실행
 #############################
+
+# pdf_link 삽입 보조함수
+def postprocess_answer(answer: str, docs: List[Document]) -> str:
+    for doc in docs:
+        pdf = doc.metadata.get("pdf_link")
+        if pdf:
+            if "상품설명서" not in answer:
+                answer += f"\n\n [상품설명서 PDF 보기]({pdf})"
+            break
+    return answer
+
 
 # 챗봇 클래스
 class ChatBot:
@@ -888,16 +1055,16 @@ class ChatBot:
             state["history"] = history
         
         result = adaptive_self_rag_memory.invoke(state, config=config)
-
         gen_list = result.get("generation", [])
+        docs = result.get("filtered_documents", [])
         if not gen_list:
             bot_response = "죄송합니다. 답변을 생성할 수 없습니다."
         else:
-            bot_response = gen_list[-1]  # 마지막 생성된 답변을 사용
+            raw_answer = gen_list[-1]
+            bot_response = postprocess_answer(raw_answer, docs)
 
         # 대화 이력 업데이트
-        state["history"].append((message, bot_response))
-        print(f"--- History 확인 ---\n{state["history"]}")
+        print(f"--- History 확인 ---\n{state['history']}")
         return bot_response
 
 
@@ -908,7 +1075,7 @@ chatbot = ChatBot()
 demo = gr.ChatInterface(
     fn=chatbot.chat,
     title="Adaptive Self-RAG 기반 RAG 챗봇 시스템",
-    description="정기예금, 입출금자유예금 상품 및 기타 질문에 답변합니다.",
+    description="예금, 적금, 신용대출 상품 및 기타 질문에 답변합니다.",
     examples=[
         "정기예금 상품 중 금리가 가장 높은 것은?",
         "정기예금과 입출금자유예금은 어떤 차이점이 있나요?",
