@@ -26,7 +26,7 @@ def process_data(raw_csv_path: str, processed_json_dir: str) -> None:
     {
       "documents": [
         {
-          "id": "입출금자유예금_product_000",
+          "id": "입출금자유예금_000",
           "bank": "은행명",
           "product_name": "상품명",
           "type": "입출금자유예금",
@@ -73,7 +73,7 @@ def process_data(raw_csv_path: str, processed_json_dir: str) -> None:
         metadata["key_summary"] = key_summary
 
         document = {
-            "id": f"입출금자유예금_product_{idx:03d}",
+            "id": f"입출금자유예금_{idx:03d}",
             "bank": bank,
             "product_name": product_name,
             "type": product_type,
@@ -95,5 +95,5 @@ def process_data(raw_csv_path: str, processed_json_dir: str) -> None:
 
 if __name__ == "__main__":
     raw_csv = "/home/inseong/langgraph_rag_agent/db_preprocessing/rawdata/예금금리_입출금자유예금_20250213.csv"
-    processed_json_dir = "C:/Users/sj/Documents/CAPD/langgraph_rag_agent/findata"
+    processed_json_dir = "/home/inseong/langgraph_rag_agent/findata"
     process_data(raw_csv, processed_json_dir)
