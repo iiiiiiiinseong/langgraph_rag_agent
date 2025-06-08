@@ -1,38 +1,112 @@
-# Updated qd_mapping_multi.py
+# qd_mapping_multi.py
+from __future__ import annotations
 
-import json, csv, random
-from pathlib import Path
-from openai import OpenAI
+import argparse
+import asyncio
+import csv
+import json
+import random
 from itertools import combinations
-from typing import List, Dict
+from pathlib import Path
+from typing import Dict, List, Sequence, Tuple
 
-# — 설정 경로 —
-FIXED_JSON_PATH  = "./../findata/fixed_deposit_20250212.json"
-DEMAND_JSON_PATH = "./../findata/demand_deposit_20250213.json"
+from openai import AsyncOpenAI, OpenAIError
 
-# — OpenAI SDK 초기화 —
-openai = OpenAI()
+# ────────── 사용 예시 ───────────
+# 기본값(샘플 100, 콤보당 질문 3, 동시 10요청)
+# python qd_mapping_multi_async.py
 
-# — JSON 로더 —
-def load_docs(path: str) -> List[Dict]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return data.get("documents", [])
+# 콤보 60개, 질문 3개씩, 동시 8요청, 결과 파일 지정
+# python qd_mapping_multi_async.py --sample 60 -n 3 --concurrency 8 --output results/multi.csv
+# ──────────────────────────
 
-all_docs = load_docs(FIXED_JSON_PATH) + load_docs(DEMAND_JSON_PATH)
+# ──────────────────────────
+# 설정 / 상수
+# ──────────────────────────
+DEFAULT_JSON_PATHS: tuple[str, ...] = (
+    "./../findata/fixed_deposit.json",
+    "./../findata/demand_deposit.json",
+    "./../findata/loan.json",
+    "./../findata/savings.json",
+)
+MODEL = "gpt-4o-mini"
+TEMPERATURE = 0.0
+CATEGORIES = ["정기예금", "입출금자유예금", "적금", "대출"]
 
-# — 다중 문서 질문 생성 함수 —
-def generate_multi_doc_queries(docs: List[Dict], n_variants=3) -> List[str]:
-    meta_snippets = []
+# ──────────────────────────
+# OpenAI 비동기 클라이언트
+# ──────────────────────────
+openai = AsyncOpenAI()
+
+
+# ──────────────────────────
+# 1) 데이터 적재
+# ──────────────────────────
+def load_docs(paths: Sequence[str] = DEFAULT_JSON_PATHS) -> List[Dict]:
+    docs: list[Dict] = []
+    for p in paths:
+        with Path(p).open(encoding="utf-8") as fp:
+            data = json.load(fp)
+            docs.extend(data.get("documents", []))
+    print(f"[INFO] Loaded {len(docs)} documents from {len(paths)} files")
+    return docs
+
+# ──────────────────────────
+# 2) 콤보(문서 묶음) 생성
+# ──────────────────────────
+def build_combos(
+    docs: Sequence[Dict],
+    sample_size: int,
+    random_seed: int = 42,
+) -> List[Tuple[Dict, ...]]:
+    """
+    동일 type 내에서만 2개 또는 3개 조합을 만들고 샘플링.
+    """
+    # 1) 타입별로 문서 그룹화
+    by_type: Dict[str, List[Dict]] = {}
     for d in docs:
-        meta_snippets.append(f"- [{d['id']}] {d['bank']}의 {d['product_name']} ({d['type']})")
-    snippet = "\n".join(meta_snippets)
+        by_type.setdefault(d["type"], []).append(d)
 
-    prompt = f"""
-아래 문서 정보들을 모두 참고해야만 제대로 답변할 수 있는 질문을
-서로 다른 관점으로 {n_variants}개 생성해 주세요.
+    # 2) 각 타입별로 2개 조합, 3개 조합 생성
+    same_pairs = [
+        combo
+        for same_docs in by_type.values()
+        for combo in combinations(same_docs, 2)
+    ]
+    same_triples = [
+        combo
+        for same_docs in by_type.values()
+        for combo in combinations(same_docs, 3)
+    ]
+
+    # 3) 최종 후보는 동일 타입 페어 + 동일 타입 트리플
+    all_combos = same_pairs + same_triples
+    
+    print(
+        f"[INFO] combos → same_pairs={len(same_pairs)}, "
+        f"same_triples={len(same_triples)}, total={len(all_combos)}"
+    )
+
+    # 4) 샘플링
+    random.seed(random_seed)
+    sampled = random.sample(all_combos, k=min(sample_size, len(all_combos)))
+    print(f"[INFO] Sampled {len(sampled)} combos (seed={random_seed})")
+    return sampled
+
+
+# ──────────────────────────
+# 3) 비동기 질문 생성
+# ──────────────────────────
+def _build_prompt(combos: Sequence[Dict], n: int) -> str:
+    items = "\n".join(
+        f"- [{d['id']}] {d['bank']}의 {d['product_name']} ({d['type']})" for d in combos
+    )
+    return f"""
+아래 상품들을 모두 참고해야 답할 수 있는 질문을
+서로 다른 관점으로 {n}개 만들어 주세요.
 
 상품 목록:
-{snippet}
+{items}
 
 조건:
 - 반드시 모든 문서를 비교하거나 조합해서 물어봐야 합니다.
@@ -48,70 +122,121 @@ def generate_multi_doc_queries(docs: List[Dict], n_variants=3) -> List[str]:
 1. 질문1
 2. 질문2
 ...
-"""
-    resp = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}],
-        temperature=0
-    )
-    lines = resp.choices[0].message.content.splitlines()
-    qs = []
-    for line in lines:
-        line = line.strip()
-        if line and line[0].isdigit() and "." in line:
-            qs.append(line.split(".",1)[1].strip())
-            if len(qs) >= n_variants:
-                break
-    return qs
+""".strip()
 
-# — 매핑 생성 로직 (랜덤 40개 조합) —
-def build_multi_mapping(output_csv="qd_mapping_multi.csv", sample_size=40):
-    # Prepare combinations
-    by_type = {}
-    for d in all_docs:
-        by_type.setdefault(d["type"], []).append(d)
+async def query_variants_multi_async(
+    combo: Sequence[Dict],
+    n: int,
+    semaphore: asyncio.Semaphore,
+    retry: int = 3,
+    backoff: float = 2.0,
+) -> List[str]:
+    """콤보(2~3개 문서)에 대해 n개의 비교/조합 질문 생성."""
+    prompt = _build_prompt(combo, n)
 
-    # 1) Same-type pairs
-    same_pairs = [combo for docs in by_type.values() for combo in combinations(docs, 2)]
+    async with semaphore:
+        for attempt in range(1, retry + 1):
+            try:
+                resp = await openai.chat.completions.create(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=TEMPERATURE,
+                )
+                lines = (l.strip() for l in resp.choices[0].message.content.splitlines())
+                return [
+                    l.split(".", 1)[1].strip()
+                    for l in lines
+                    if l and l[0].isdigit() and "." in l
+                ][:n]
+            except OpenAIError as e:
+                if attempt == retry:
+                    raise
+                wait = backoff * (2 ** (attempt - 1)) + random.random()
+                print(
+                    f"[WARN] OpenAI error ({e}). retry {attempt}/{retry} in {wait:.1f}s"
+                )
+                await asyncio.sleep(wait)
 
-    # 2) Cross-type pairs
-    cross_pairs = [combo for combo in combinations(all_docs, 2)
-                   if combo[0]['type'] != combo[1]['type']]
-
-    # 3) Multi-type triples (at least two types)
-    triples = [combo for combo in combinations(all_docs, 3)
-               if len({d["type"] for d in combo}) > 1]
-
-    print(f"[INFO] same-type pairs: {len(same_pairs)}, cross-type pairs: {len(cross_pairs)}, mixed triples: {len(triples)}")
-    all_combos = same_pairs + cross_pairs + triples
-    print(f"[INFO] total possible combos: {len(all_combos)}")
-
-    # Random sample
-    random.seed(42)
-    sampled_combos = random.sample(all_combos, min(sample_size, len(all_combos)))
-    print(f"[INFO] sampled {len(sampled_combos)} combos for Q-D mapping")
-
-    # Generate questions
-    rows = []
-    total_qs = 0
-    for combo in sampled_combos:
-        doc_ids = [d["id"] for d in combo]
-        qs = generate_multi_doc_queries(list(combo), n_variants=2)
-        for q in qs:
-            rows.append({
-                "doc_ids": ",".join(doc_ids),
-                "question": q
-            })
-        print(f"  • {doc_ids} → {len(qs)}개 질문 생성")
-        total_qs += len(qs)
-
-    # Save CSV
-    with open(output_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["doc_ids","question"])
+    return []
+# ──────────────────────────
+# 4) CSV 저장
+# ──────────────────────────
+def save_csv(rows: List[Dict[str, str]], path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with Path(path).open("w", newline="", encoding="utf-8") as fp:
+        writer = csv.DictWriter(fp, fieldnames=["doc_ids", "question"])
         writer.writeheader()
         writer.writerows(rows)
+    print(f"[DONE] Wrote {len(rows)} rows to {path}")
 
-    print(f"[DONE] 다중 문서 Q-D 매핑 생성 완료: 총 {total_qs}개 질문 → {output_csv}")
+
+# ──────────────────────────
+# 5) 메인 비동기 파이프라인
+# ──────────────────────────
+async def build_mapping_async(
+    json_paths: Sequence[str],
+    output_csv: str,
+    sample_size: int,
+    n_variants_per_combo: int,
+    concurrency: int,
+):
+    docs = load_docs(json_paths)
+    combos = build_combos(docs, sample_size)
+
+    semaphore = asyncio.Semaphore(concurrency)
+    rows: list[Dict[str, str]] = []
+
+    async def process_combo(combo: Tuple[Dict, ...]):
+        doc_ids = [d["id"] for d in combo]
+        qs = await query_variants_multi_async(
+            combo, n=n_variants_per_combo, semaphore=semaphore
+        )
+        rows.extend({"doc_ids": ",".join(doc_ids), "question": q} for q in qs)
+        print(f"  • combo {doc_ids} → {len(qs)} questions")
+
+    await asyncio.gather(*(process_combo(c) for c in combos))
+    save_csv(rows, output_csv)
+
+
+# ──────────────────────────
+# CLI 실행
+# ──────────────────────────
+def main():
+    parser = argparse.ArgumentParser(
+        description="Build multi-doc Q-D mapping CSV (async version)"
+    )
+    parser.add_argument("--output", default="qd_mapping_multi.csv", help="출력 CSV 경로")
+    parser.add_argument(
+        "--sample", type=int, default=100, help="콤보 샘플 수 (조합 개수), 기본값은 100"
+    )
+    parser.add_argument(
+        "-n",
+        "--n_variants",
+        type=int,
+        default=3,
+        help="콤보당 생성할 질문 개수, 기본값은 3",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=10,
+        help="동시 OpenAI 요청 수(세마포어 한도), 기본값은 10",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="랜덤 시드")
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+
+    asyncio.run(
+        build_mapping_async(
+            json_paths=DEFAULT_JSON_PATHS,
+            output_csv=args.output,
+            sample_size=args.sample,
+            n_variants_per_combo=args.n_variants,
+            concurrency=args.concurrency,
+        )
+    )
+
 
 if __name__ == "__main__":
-    build_multi_mapping()
+    main()
