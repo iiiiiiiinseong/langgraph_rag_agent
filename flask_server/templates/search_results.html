@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF 검색 결과</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        h1 { color: #2c3e50; }
+        .category { margin-top: 30px; }
+        .bank { margin-left: 20px; font-weight: bold; }
+        ul { margin-left: 40px; }
+        a { text-decoration: none; color: #2980b9; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>🔍 검색 결과: "{{ query }}"</h1>
+
+    {% if results %}
+        {% for category, banks in results.items() %}
+            <div class="category">
+                <h2>📁 {{ category }}</h2>
+                {% for bank, files in banks.items() %}
+                    <div class="bank">🏦 {{ bank }}</div>
+                    <ul>
+                        {% for file in files %}
+                            <li><a href="/pdf/{{ category }}/{{ bank }}/{{ file }}" target="_blank">{{ file }}</a></li>
+                        {% endfor %}
+                    </ul>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>일치하는 PDF를 찾을 수 없습니다.</p>
+    {% endif %}
+
+    <a href="/">← 홈으로</a>
+</body>
+</html>

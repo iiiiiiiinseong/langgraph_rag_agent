@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>상품별 PDF 데이터베이스</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #f4f6f8;
+            margin: 0;
+            padding: 50px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+
+        .search-box {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .search-box input[type="text"] {
+            width: 300px;
+            padding: 10px;
+            font-size: 1em;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        .search-box button {
+            padding: 10px 20px;
+            margin-left: 8px;
+            font-size: 1em;
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .search-box button:hover {
+            background-color: #1f6391;
+        }
+
+        .category-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .category-box {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 30px 40px;
+            width: 200px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .category-box:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        }
+
+        .category-box a {
+            text-decoration: none;
+            color: #2980b9;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+
+        .footer {
+            margin-top: 60px;
+            text-align: center;
+            color: #aaa;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>📂 상품별 PDF 데이터베이스</h1>
+
+    <div class="search-box">
+        <form action="/search" method="get">
+            <input type="text" name="q" placeholder="PDF 이름으로 검색">
+            <button type="submit">검색</button>
+        </form>
+    </div>
+
+    <div class="category-container">
+        {% for category in categories %}
+            <div class="category-box">
+                <a href="/browse/{{ category }}">{{ category }}</a>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="footer">
+        Powered by Flask • {{ categories|length }} categories loaded
+    </div>
+</body>
+</html>

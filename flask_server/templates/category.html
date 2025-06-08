@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ category }} 문서 리스트</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        h1 { color: #2c3e50; }
+        details { margin-bottom: 20px; }
+        summary {
+            font-size: 1.2em;
+            font-weight: bold;
+            cursor: pointer;
+            background: #ecf0f1;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        ul { margin-left: 20px; }
+        a { color: #2c3e50; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>📁 {{ category }} 문서 리스트 (은행별)</h1>
+
+    {% for bank, files in bank_files.items() %}
+        <details>
+            <summary>{{ bank }} ({{ files|length }}개)</summary>
+            <ul>
+                {% for file in files %}
+                    <li><a href="/pdf/{{ category }}/{{ bank }}/{{ file }}" target="_blank">{{ file }}</a></li>
+                {% endfor %}
+            </ul>
+        </details>
+    {% endfor %}
+
+    <a href="/">← 카테고리로 돌아가기</a>
+</body>
+</html>
