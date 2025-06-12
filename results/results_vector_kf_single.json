@@ -1,0 +1,12 @@
+{
+  "precision": 0.13333333333333333,
+  "recall": 0.4,
+  "f1": 0.2,
+  "router_accuracy": 0.83,
+  "route_stats": {
+    "search_data": 83,
+    "llm_fallback": 17,
+    "error": 0
+  },
+  "total": 100
+}
