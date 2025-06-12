@@ -73,19 +73,23 @@ def build_combos(
         for same_docs in by_type.values()
         for combo in combinations(same_docs, 2)
     ]
-    same_triples = [
-        combo
-        for same_docs in by_type.values()
-        for combo in combinations(same_docs, 3)
-    ]
+    # same_triples = [
+    #     combo
+    #     for same_docs in by_type.values()
+    #     for combo in combinations(same_docs, 3)
+    # ]
 
     # 3) 최종 후보는 동일 타입 페어 + 동일 타입 트리플
-    all_combos = same_pairs + same_triples
-    
+    # all_combos = same_pairs + same_triples
+    all_combos = same_pairs
+    # print(
+    #     f"[INFO] combos → same_pairs={len(same_pairs)}, "
+    #     f"same_triples={len(same_triples)}, total={len(all_combos)}"
+    # )
+
     print(
-        f"[INFO] combos → same_pairs={len(same_pairs)}, "
-        f"same_triples={len(same_triples)}, total={len(all_combos)}"
-    )
+        f"[INFO] combos → same_pairs={len(same_pairs)}"
+        )
 
     # 4) 샘플링
     random.seed(random_seed)
@@ -207,20 +211,20 @@ def main():
     )
     parser.add_argument("--output", default="qd_mapping_multi.csv", help="출력 CSV 경로")
     parser.add_argument(
-        "--sample", type=int, default=100, help="콤보 샘플 수 (조합 개수), 기본값은 100"
+        "--sample", type=int, default=50, help="콤보 샘플 수 (조합 개수)"
     )
     parser.add_argument(
         "-n",
         "--n_variants",
         type=int,
-        default=3,
-        help="콤보당 생성할 질문 개수, 기본값은 3",
+        default=2,
+        help="콤보당 생성할 질문 개수",
     )
     parser.add_argument(
         "--concurrency",
         type=int,
         default=10,
-        help="동시 OpenAI 요청 수(세마포어 한도), 기본값은 10",
+        help="동시 OpenAI 요청 수(세마포어 한도)",
     )
     parser.add_argument("--seed", type=int, default=42, help="랜덤 시드")
     args = parser.parse_args()
