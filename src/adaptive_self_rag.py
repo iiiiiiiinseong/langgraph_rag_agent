@@ -23,11 +23,11 @@ import uuid
 import re
 from textwrap import dedent
 from operator import add
-from heapq import merge
 from typing import List, Literal, Sequence, TypedDict, Annotated, Tuple
 
 # 서치 알고리즘
 from rank_bm25 import BM25Okapi
+from entity_extraction import extract_banks, extract_entity_pairs
 
 # LangChain, Chroma, LLM 관련
 from langchain_core.documents import Document
@@ -35,12 +35,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import tool 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.tools import TavilySearchResults
-from langchain_core.runnables import RunnableLambda
 
 # Grader 평가지표용
 from pydantic import BaseModel, Field
@@ -102,6 +99,7 @@ def load_and_prepare_all_documents(json_paths: list[str]) -> list[Document]:
             bank         = entry.get("bank",         md.get("은행"))
             product_name = entry.get("product_name", md.get("상품명"))
             category     = entry.get("type")
+            pdf_link     = entry.get("pdf_link",     md.get("pdf_link"))
             docs.append(
                 Document(
                     page_content=content,
@@ -109,7 +107,8 @@ def load_and_prepare_all_documents(json_paths: list[str]) -> list[Document]:
                         "id":           entry.get("id"),
                         "type":         category,
                         "bank":         bank,
-                        "product_name": product_name
+                        "product_name": product_name,
+                        "pdf_link":     pdf_link
                     }
                 )
             )
@@ -144,19 +143,36 @@ print("총 문서 수:", len(all_documents))
 from collections import Counter
 print(Counter(doc.metadata['type'] for doc in all_documents))
 
-def extract_bank(query: str) -> str | None:
-    m = re.search(r'([가-힣A-Za-z0-9]+?(은행|뱅크|회사))', query)
-    return m.group(1) if m else None
-
-def extract_product(query: str) -> str | None:
-    # “~통장”, “~예금”, “~대출” 등으로 마침
-    m = re.search(r'([가-힣A-Za-z0-9]+(?:통장|예금|대출))', query)
-    return m.group(1).strip() if m else None
-
-
 #############################
 # 3. 서치알고리즘 및 도구(검색 함수) 정의
 #############################
+from difflib import SequenceMatcher
+def _match_meta(v, t, thr=0.8):
+    v = "".join(v.lower().split())
+    t = "".join(t.lower().split())
+    return SequenceMatcher(None, v, t).ratio()>=thr or t in v
+
+def _document_matches(doc: Document, filters: dict | None) -> bool:
+    if not filters:                      # None 또는 빈 dict → 통과
+        return True
+    for k, v in filters.items():
+        if v is None:                    # 필터 값이 None → 조건 없음
+            continue
+
+        doc_val = doc.metadata.get(k, "")
+        # ---------- 리스트 값 처리 ----------
+        if isinstance(v, list):
+            if not any(_match_meta(doc_val, x) for x in v):
+                return False
+            continue                     # 다음 필터로
+        # ---------- 단일 값 처리 ----------
+        if k in ("bank", "product_name"):
+            if not _match_meta(doc_val, v):
+                return False
+        else:
+            if doc_val != v:
+                return False
+    return True
 
 def _search_with_filters(query: str, filters: dict, top_k: int) -> list[Document]:
     # 1) BM25: 전체 코퍼스에서 score 계산 → metadata 필터 적용해 top_k
@@ -166,36 +182,44 @@ def _search_with_filters(query: str, filters: dict, top_k: int) -> list[Document
     bm25_docs = []
     for i in idxs:
         d = all_documents[i]
-        if all(filters.get(k) is None or d.metadata.get(k)==filters[k] for k in filters):
+        if _document_matches(d, filters):
             bm25_docs.append(d)
             if len(bm25_docs)>=top_k: break
 
-    # 2) 벡터: Chroma의 filter 파라미터 사용 (단일키 vs 다중키에 따라 $and 로 묶어서 전달)
-    meta = {k: v for k, v in filters.items() if v is not None}
-    if not meta:
-        vec_docs = vector_db.similarity_search(query, k=top_k)
-    elif len(meta) == 1:
-        # 단일 필터터
-        vec_docs = vector_db.similarity_search(query, k=top_k, filter=meta)
-    else:
-        # 여러 필터는 하나의 연산자($and)로 묶어서 넘겨야 함
-        and_list = [{k: v} for k, v in meta.items()]
-        vec_docs = vector_db.similarity_search(
-                    query, 
-                    k=top_k, 
-                    filter={"$and": and_list}
-        )
+    # 2) 벡터 검색용 filter 준비: 리스트 → $in, 스칼라 → 그대로
+    raw_meta = {k: v for k, v in filters.items() if v is not None}
+    prepared = {}
+    for k, v in raw_meta.items():
+        if isinstance(v, list):
+            # 여러 값을 허용하려면 $in 사용
+            prepared[k] = {"$in": v}
+        else:
+            prepared[k] = v
 
+    if not prepared:
+        # 필터 없으면 전체
+        vec_docs = vector_db.similarity_search(query, k=top_k)
+    elif len(prepared) == 1:
+        # 단일 필터
+        vec_docs = vector_db.similarity_search(
+            query, k=top_k, filter=prepared
+        )
+    else:
+        # 다중 필터: $and 로 묶어 전달
+        and_clauses = []
+        for k, v in prepared.items():
+            and_clauses.append({k: v})
+        vec_docs = vector_db.similarity_search(
+            query,
+            k=top_k,
+            filter={"$and": and_clauses}
+        )
     # 3) 중복 제거 및 PDF 링크 추가 처리
     seen, merged = set(), []
     for d in bm25_docs + vec_docs:
         uid = d.metadata["id"]
         if uid not in seen:
             seen.add(uid)
-            # PDF 링크가 있으면 page_content에 추가
-            pdf = d.metadata.get("pdf_link")
-            if pdf and "pdf_link" not in d.page_content:
-                d.page_content += f"\n\n📄 [상품설명서 PDF 보기]({pdf})"
             merged.append(d)
     return merged
 
@@ -214,7 +238,7 @@ def hybrid_core_search(query: str, category: str, bank: str=None, product_name: 
         filters,
         {**filters, **{"product_name": None}},  # 상품명 제외
         {**filters, **{"bank": None}},          # 은행 제외
-        {"category": category}                  # 카테고리만
+        { "type": category }            # 카테고리만
     ]
 
     # 3) 순서대로 BM25+벡터 병렬 검색 → 결과 반환
@@ -223,29 +247,6 @@ def hybrid_core_search(query: str, category: str, bank: str=None, product_name: 
         if docs:
             return docs
     return []
-
-BANK_NORMALIZE = {
-    "국민": "KB국민은행",
-    "국민은행": "KB국민은행",
-    "수협": "Sh수협은행",
-    "수협은행": "Sh수협은행",
-    "신한": "신한은행",
-    "신한은행": "신한은행",
-    "농협": "NH농협은행",
-    "NH": "NH농협은행",
-    "농협은행": "NH농협은행",
-    "우리": "우리은행",
-    "우리은행": "우리은행",
-    "IBK": "IBK기업은행",
-    "기업은행": "IBK기업은행",
-    "IBK기업은행": "IBK기업은행",
-    "하나": "하나은행",
-    "하나은행": "하나은행",
-    "카카오": "카카오뱅크",
-    "카카오뱅크": "카카오뱅크",
-    "부산": "부산은행",
-    "부산은행": "부산은행",
-    }
 
 def get_banks_in_docs(documents: list[Document]) -> set[str]:
     banks = set()
@@ -256,23 +257,31 @@ def get_banks_in_docs(documents: list[Document]) -> set[str]:
             banks.add(bank)
     return banks
 
-
-def extract_and_normalize_banks(query: str) -> list[str]:
-    found = set()
-    for k in BANK_NORMALIZE:
-        if k in query:
-            found.add(BANK_NORMALIZE[k])
-    return list(found)
-
-
 @tool
 def search_fixed_deposit(query: str) -> List[Document]:
     """
     Search for relevant fixed deposit (정기예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as interest rates or terms.
     """
-    bank, product = extract_bank(query), extract_product(query)
-    return hybrid_core_search(query, category="정기예금", bank=bank, product_name=product)
+    pairs = extract_entity_pairs(query)
+    docs, seen = [], set()
+    if pairs:
+        # 1:1 매핑된 (bank, product) 조합만 순회
+        for pair in pairs:
+            b, p = pair["bank"], pair["product"]
+            for d in hybrid_core_search(
+                query, category="정기예금", bank=b, product_name=p
+            ):
+                if d.metadata["id"] not in seen:
+                    seen.add(d.metadata["id"])
+                    docs.append(d)
+    else:
+        # 페어링 실패 시: category-only fallback
+        for d in hybrid_core_search(query, category="정기예금"):
+            if d.metadata["id"] not in seen:
+                seen.add(d.metadata["id"])
+                docs.append(d)
+    return docs
 
 @tool
 def search_demand_deposit(query: str) -> List[Document]:
@@ -280,8 +289,25 @@ def search_demand_deposit(query: str) -> List[Document]:
     Search for demand deposit (입출금자유예금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
     """
-    bank, product = extract_bank(query), extract_product(query)
-    return hybrid_core_search(query, category="입출금자유예금", bank=bank, product_name=product)
+    pairs = extract_entity_pairs(query)
+    docs, seen = [], set()
+    if pairs:
+        # 1:1 매핑된 (bank, product) 조합만 순회
+        for pair in pairs:
+            b, p = pair["bank"], pair["product"]
+            for d in hybrid_core_search(
+                query, category="입출금자유예금", bank=b, product_name=p
+            ):
+                if d.metadata["id"] not in seen:
+                    seen.add(d.metadata["id"])
+                    docs.append(d)
+    else:
+        # 페어링 실패 시: category-only fallback
+        for d in hybrid_core_search(query, category="입출금자유예금"):
+            if d.metadata["id"] not in seen:
+                seen.add(d.metadata["id"])
+                docs.append(d)
+    return docs
 
 @tool
 def search_loan(query: str) -> List[Document]:
@@ -289,8 +315,26 @@ def search_loan(query: str) -> List[Document]:
     Search for loan (대출) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
     """
-    bank, product = extract_bank(query), extract_product(query)
-    return hybrid_core_search(query, category="대출", bank=bank, product_name=product)
+    pairs = extract_entity_pairs(query)
+    docs, seen = [], set()
+    if pairs:
+        # 1:1 매핑된 (bank, product) 조합만 순회
+        for pair in pairs:
+            b, p = pair["bank"], pair["product"]
+            for d in hybrid_core_search(
+                query, category="대출", bank=b, product_name=p
+            ):
+                if d.metadata["id"] not in seen:
+                    seen.add(d.metadata["id"])
+                    docs.append(d)
+    else:
+        # 페어링 실패 시: category-only fallback
+        for d in hybrid_core_search(query, category="대출"):
+            if d.metadata["id"] not in seen:
+                seen.add(d.metadata["id"])
+                docs.append(d)
+    return docs
+
 
 @tool
 def search_savings(query:str) -> List[Document]:
@@ -298,8 +342,25 @@ def search_savings(query:str) -> List[Document]:
     Search for savings (적금) product information using semantic similarity.
     This tool retrieves products matching the user's query, such as flexible withdrawal or interest features.
     """
-    bank, product = extract_bank(query), extract_product(query)
-    return hybrid_core_search(query, category="적금", bank=bank, product_name=product)
+    pairs = extract_entity_pairs(query)
+    docs, seen = [], set()
+    if pairs:
+        # 1:1 매핑된 (bank, product) 조합만 순회
+        for pair in pairs:
+            b, p = pair["bank"], pair["product"]
+            for d in hybrid_core_search(
+                query, category="적금", bank=b, product_name=p
+            ):
+                if d.metadata["id"] not in seen:
+                    seen.add(d.metadata["id"])
+                    docs.append(d)
+    else:
+        # 페어링 실패 시: category-only fallback
+        for d in hybrid_core_search(query, category="적금"):
+            if d.metadata["id"] not in seen:
+                seen.add(d.metadata["id"])
+                docs.append(d)
+    return docs
 
 @tool
 def web_search(query: str) -> List[str]:
@@ -314,7 +375,6 @@ def web_search(query: str) -> List[str]:
 
     It returns the top 2 semantically relevant documents from the web.
     """
-
     tavily_search = TavilySearchResults(max_results=2)
     docs = tavily_search.invoke(query)
 
@@ -362,13 +422,10 @@ system_prompt = """You are an expert in evaluating the relevance of search resul
 
 [Scoring]
 - Rate 'yes' if relevant, 'no' if not
-- Default to 'no' when uncertain
 
 [Key points]
 - Consider the full context of the query, not just word matching
 - Rate as relevant if useful information is present, even if not a complete answer
-
-Your evaluation is crucial for improving information retrieval systems. Provide balanced assessments.
 """
 # 채점 프롬프트 템플릿릿
 grade_prompt = ChatPromptTemplate.from_messages([
@@ -805,7 +862,7 @@ def filter_documents_subgraph(state: SearchState):
             print("--- 문서 관련성: 없음 ---")
 
     # 질문에서 요구되는 은행명(엔티티) 추출 및 표준화
-    requested_banks = extract_and_normalize_banks(question)
+    requested_banks = extract_banks(question)
     # 관련성 통과된 문서에 등장한 은행명 집합 추출
     found_banks = get_banks_in_docs(filtered_docs)
 
@@ -1027,12 +1084,17 @@ with open("adaptive_self_rag_memory.mmd", "w") as f:
 
 # pdf_link 삽입 보조함수
 def postprocess_answer(answer: str, docs: List[Document]) -> str:
+    """
+    Add commentMore actions
+    관련 문서 중 유효한 pdf_link가 있는 경우, 해당 링크를 답변 말미에 추가.
+    단 한 번만 추가하고 링크가 없는 경우는 아무것도 붙이지 않음.
+    """
     for doc in docs:
-        pdf = doc.metadata.get("pdf_link")
-        if pdf:
-            if "상품설명서" not in answer:
-                answer += f"\n\n [상품설명서 PDF 보기]({pdf})"
-            break
+        pdf_link = doc.metadata.get("pdf_link")
+        if pdf_link and isinstance(pdf_link, str) and pdf_link.strip():
+            if "상품설명서 PDF 보기" not in answer:
+                return f"{answer}\n\n [상품설명서 PDF 보기]({pdf_link})"
+            break  # 한 번만 추가
     return answer
 
 
@@ -1078,8 +1140,8 @@ demo = gr.ChatInterface(
     description="예금, 적금, 신용대출 상품 및 기타 질문에 답변합니다.",
     examples=[
         "정기예금 상품 중 금리가 가장 높은 것은?",
-        "정기예금과 입출금자유예금은 어떤 차이점이 있나요?",
-        "은행의 예금 상품을 추천해 주세요."
+        "금리가 가장 낮은 대출상품을 추천해 주세요?",
+        "학생신분인데 괜찮은 적금 상품을 추천해 주세요."
     ],
     theme=gr.themes.Soft()
 )
